@@ -27,13 +27,14 @@ API_KEY = GEMINI_API_KEY
 DB_PATH = DATABASE_PATH
 
 def init_database():
-    """Initialize SQLite database"""
+    """Initialize SQLite database with comprehensive tables"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
     c.execute('''CREATE TABLE IF NOT EXISTS participants (
         id TEXT PRIMARY KEY,
         start_time TIMESTAMP,
+        end_time TIMESTAMP,
         status TEXT DEFAULT 'active'
     )''')
     
@@ -46,6 +47,43 @@ def init_database():
         FOREIGN KEY (participant_id) REFERENCES participants (id)
     )''')
     
+    c.execute('''CREATE TABLE IF NOT EXISTS questionnaire_responses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        participant_id TEXT,
+        age INTEGER,
+        education TEXT,
+        ct_experience TEXT,
+        post_q1_easy_to_use INTEGER,
+        post_q2_felt_confident INTEGER,
+        post_q3_use_again INTEGER,
+        post_q4_engaging INTEGER,
+        post_q5_natural_flow INTEGER,
+        post_q6_disengagement TEXT,
+        post_q7_encouraged_reflection INTEGER,
+        post_q8_multiple_perspectives INTEGER,
+        post_q9_critical_thinking_ways TEXT,
+        post_q10_learned_something TEXT,
+        post_q11_design_support TEXT,
+        post_q12_confusion TEXT,
+        post_q13_application TEXT,
+        post_q14_improvements TEXT,
+        post_q15_valuable INTEGER,
+        post_q16_recommend INTEGER,
+        post_q17_other_comments TEXT,
+        facione_critical_thinking_score REAL,
+        completion_time TIMESTAMP,
+        FOREIGN KEY (participant_id) REFERENCES participants (id)
+    )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS study_scenarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        participant_id TEXT,
+        scenario_text TEXT,
+        initial_question TEXT,
+        generation_timestamp TIMESTAMP,
+        FOREIGN KEY (participant_id) REFERENCES participants (id)
+    )''')
+    
     conn.commit()
     conn.close()
 
@@ -55,6 +93,65 @@ def save_message(participant_id, user_msg, ai_msg):
     c = conn.cursor()
     c.execute('''INSERT INTO conversations (participant_id, user_message, ai_response, timestamp)
                  VALUES (?, ?, ?, ?)''', (participant_id, user_msg, ai_msg, datetime.now()))
+    conn.commit()
+    conn.close()
+
+def save_scenario(participant_id, scenario, question):
+    """Save generated scenario to database"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT INTO study_scenarios (participant_id, scenario_text, initial_question, generation_timestamp)
+                 VALUES (?, ?, ?, ?)''', (participant_id, scenario, question, datetime.now()))
+    conn.commit()
+    conn.close()
+
+def save_questionnaire_responses(participant_data):
+    """Save all questionnaire responses to database"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Extract participant ID
+    participant_id = st.session_state.participant_id
+    
+    c.execute('''INSERT INTO questionnaire_responses (
+        participant_id, age, education, ct_experience,
+        post_q1_easy_to_use, post_q2_felt_confident, post_q3_use_again,
+        post_q4_engaging, post_q5_natural_flow, post_q6_disengagement,
+        post_q7_encouraged_reflection, post_q8_multiple_perspectives,
+        post_q9_critical_thinking_ways, post_q10_learned_something,
+        post_q11_design_support, post_q12_confusion, post_q13_application,
+        post_q14_improvements, post_q15_valuable, post_q16_recommend,
+        post_q17_other_comments, facione_critical_thinking_score, completion_time
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+        participant_id,
+        participant_data.get('age'),
+        participant_data.get('education'),
+        participant_data.get('ct_experience'),
+        participant_data.get('post_q1_easy_to_use'),
+        participant_data.get('post_q2_felt_confident'),
+        participant_data.get('post_q3_use_again'),
+        participant_data.get('post_q4_engaging'),
+        participant_data.get('post_q5_natural_flow'),
+        participant_data.get('post_q6_disengagement'),
+        participant_data.get('post_q7_encouraged_reflection'),
+        participant_data.get('post_q8_multiple_perspectives'),
+        participant_data.get('post_q9_critical_thinking_ways'),
+        participant_data.get('post_q10_learned_something'),
+        participant_data.get('post_q11_design_support'),
+        participant_data.get('post_q12_confusion'),
+        participant_data.get('post_q13_application'),
+        participant_data.get('post_q14_improvements'),
+        participant_data.get('post_q15_valuable'),
+        participant_data.get('post_q16_recommend'),
+        participant_data.get('post_q17_other_comments'),
+        participant_data.get('facione_critical_thinking_score'),
+        datetime.now()
+    ))
+    
+    # Update participant end time
+    c.execute('''UPDATE participants SET end_time = ?, status = 'completed' WHERE id = ?''',
+              (datetime.now(), participant_id))
+    
     conn.commit()
     conn.close()
 
@@ -160,6 +257,12 @@ No explanation. No labels. Just the JSON."""
 
 def main():
     st.set_page_config(page_title="Critical Thinking Study", layout="centered")
+    
+    # Check for admin panel access
+    query_params = st.query_params
+    if query_params.get("admin") == "true":
+        show_admin_panel()
+        return
     
     # Initialize database
     init_database()
@@ -464,6 +567,117 @@ def show_thank_you():
         facione_score = st.session_state.participant_data.get('facione_critical_thinking_score', 'Not available')
         st.metric("Facione Critical Thinking Score", f"{facione_score:.2f}/4.0" if isinstance(facione_score, (int, float)) else facione_score)
         st.json(st.session_state.participant_data)
+
+def show_admin_panel():
+    """Show admin panel for data export - add ?admin=true to URL"""
+    st.title("🔧 Study Admin Panel")
+    
+    # Quick stats
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        
+        total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
+        active_convs = pd.read_sql_query(
+            "SELECT COUNT(DISTINCT participant_id) as count FROM conversations WHERE user_message IS NOT NULL", 
+            conn
+        )['count'][0]
+        total_exchanges = pd.read_sql_query(
+            "SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", 
+            conn
+        )['count'][0]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Participants", total_participants)
+        with col2:
+            st.metric("Active Conversations", active_convs)
+        with col3:
+            st.metric("Total Exchanges", total_exchanges)
+        
+        st.markdown("---")
+        
+        # Data export
+        if st.button("📥 Export All Data"):
+            # Export participants
+            participants_df = pd.read_sql_query("SELECT * FROM participants ORDER BY start_time DESC", conn)
+            conversations_df = pd.read_sql_query("""
+                SELECT * FROM conversations 
+                ORDER BY participant_id, timestamp
+            """, conn)
+            
+            # Try to get questionnaire data if it exists
+            try:
+                questionnaire_df = pd.read_sql_query("SELECT * FROM questionnaire_responses", conn)
+            except:
+                questionnaire_df = pd.DataFrame()
+            
+            st.download_button(
+                label="⬇️ Download Participants CSV",
+                data=participants_df.to_csv(index=False),
+                file_name=f"participants_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+            
+            st.download_button(
+                label="⬇️ Download Conversations CSV",
+                data=conversations_df.to_csv(index=False),
+                file_name=f"conversations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+            
+            if not questionnaire_df.empty:
+                st.download_button(
+                    label="⬇️ Download Questionnaires CSV",
+                    data=questionnaire_df.to_csv(index=False),
+                    file_name=f"questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+        
+        # Recent activity
+        st.subheader("📋 Recent Activity")
+        recent_df = pd.read_sql_query("""
+            SELECT 
+                p.id as participant_id,
+                p.start_time,
+                COUNT(c.id) as total_messages,
+                COUNT(CASE WHEN c.user_message IS NOT NULL THEN 1 END) as user_responses
+            FROM participants p
+            LEFT JOIN conversations c ON p.id = c.participant_id
+            GROUP BY p.id, p.start_time
+            ORDER BY p.start_time DESC
+            LIMIT 20
+        """, conn)
+        
+        # Make participant IDs shorter for display
+        recent_df['short_id'] = recent_df['participant_id'].str[:8] + '...'
+        display_df = recent_df[['short_id', 'start_time', 'total_messages', 'user_responses']].copy()
+        st.dataframe(display_df, use_container_width=True)
+        
+        # Conversation preview
+        st.subheader("💬 Latest Conversations")
+        latest_convs = pd.read_sql_query("""
+            SELECT 
+                SUBSTR(participant_id, 1, 8) || '...' as participant,
+                user_message,
+                ai_response,
+                timestamp
+            FROM conversations 
+            WHERE user_message IS NOT NULL
+            ORDER BY timestamp DESC
+            LIMIT 10
+        """, conn)
+        
+        for _, row in latest_convs.iterrows():
+            with st.expander(f"{row['participant']} - {row['timestamp'][:16]}"):
+                st.write("**Student:**", row['user_message'])
+                ai_preview = row['ai_response'][:150] + "..." if len(row['ai_response']) > 150 else row['ai_response']
+                st.write("**AI:**", ai_preview)
+        
+        conn.close()
+        
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        st.info("Note: This admin panel works with the deployed database. Make sure the database exists and is accessible.")
 
 if __name__ == "__main__":
     main()
