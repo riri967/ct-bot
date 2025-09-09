@@ -15,6 +15,7 @@ import streamlit as st
 import sqlite3
 import uuid
 import json
+import pandas as pd
 from datetime import datetime
 from socratic_chatbot import SimplifiedOrchestrator
 from api_utils import get_model_with_retry, generate_with_retry
