@@ -1,12 +1,20 @@
 # Configuration file for API keys and settings
-# Keep this file secure and don't commit to version control
+import os
+import streamlit as st
+
+# Get API keys from environment variables (Streamlit secrets or env vars)
+def get_api_key(key_name, fallback_key='GEMINI_API_KEY'):
+    # Try Streamlit secrets first (for cloud deployment)
+    if hasattr(st, 'secrets') and key_name in st.secrets:
+        return st.secrets[key_name]
+    # Fall back to environment variables
+    return os.getenv(key_name, os.getenv(fallback_key, ''))
 
 # Multiple Gemini API keys for load distribution
-# Replace these with your 3 different API keys:
 GEMINI_API_KEYS = {
-    'stimulus_generation': "AIzaSyCSZPXbPhtiBPwHegQxn2xbOx5Eb1ybPpI",  # For RAG stimulus generation
-    'socratic_responses': "AIzaSyCSZPXbPhtiBPwHegQxn2xbOx5Eb1ybPpI",   # For chatbot responses  
-    'question_generation': "AIzaSyCSZPXbPhtiBPwHegQxn2xbOx5Eb1ybPpI"  # For initial questions
+    'stimulus_generation': get_api_key('GEMINI_API_KEY_1', 'GEMINI_API_KEY'),  # For RAG stimulus generation
+    'socratic_responses': get_api_key('GEMINI_API_KEY_2', 'GEMINI_API_KEY'),   # For chatbot responses  
+    'question_generation': get_api_key('GEMINI_API_KEY_3', 'GEMINI_API_KEY')  # For initial questions
 }
 
 # Backward compatibility
