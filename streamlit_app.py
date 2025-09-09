@@ -42,9 +42,13 @@ def init_database():
     conn.close()
 
 def save_message(participant_id, user_msg, ai_msg):
-    """Save conversation to database - DISABLED until study upload"""
-    # TODO: Enable database saving when ready for actual study
-    pass  # Database saving disabled
+    """Save conversation to database"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT INTO conversations (participant_id, user_message, ai_response, timestamp)
+                 VALUES (?, ?, ?, ?)''', (participant_id, user_msg, ai_msg, datetime.now()))
+    conn.commit()
+    conn.close()
 
 def get_conversation_history(participant_id):
     """Retrieve conversation history"""
@@ -222,16 +226,19 @@ def main():
                 st.session_state.question = question
                 st.session_state.stimulus_generated = True
                 
+                # Save the initial scenario and question to database
+                initial_content = f"**SCENARIO:**\n{stimulus}\n\n**QUESTION:**\n{question}"
+                save_message(st.session_state.participant_id, None, initial_content)
+                
             except Exception as e:
                 st.error(f"Error generating topic: {e}")
                 st.session_state.stimulus = "Consider a complex ethical dilemma where different stakeholders hold conflicting views based on the same evidence."
                 st.session_state.question = "What factors should be considered when evaluating such disagreements?"
                 st.session_state.stimulus_generated = True
-    
-    # Display stimulus and question
-    if st.session_state.stimulus_generated:
-        st.info(f"**Scenario:** {st.session_state.stimulus}")
-        st.warning(f"**Question:** {st.session_state.question}")
+                
+                # Save fallback scenario to database
+                initial_content = f"**SCENARIO:**\n{st.session_state.stimulus}\n\n**QUESTION:**\n{st.session_state.question}"
+                save_message(st.session_state.participant_id, None, initial_content)
     
     # Chat interface
     st.subheader("Discussion")
@@ -240,9 +247,23 @@ def main():
     messages = get_conversation_history(st.session_state.participant_id)
     
     for user_msg, ai_msg in messages:
-        if user_msg:  # Skip opening stimulus
-            st.chat_message("user").write(user_msg)
-        st.chat_message("assistant").write(ai_msg)
+        if user_msg:  # Student response
+            with st.chat_message("user"):
+                st.write(user_msg)
+        
+        # AI response 
+        with st.chat_message("assistant"):
+            if "**SCENARIO:**" in ai_msg and "**QUESTION:**" in ai_msg:
+                # Split scenario and question for separate boxes
+                parts = ai_msg.split("**QUESTION:**")
+                scenario_part = parts[0].replace("**SCENARIO:**", "").strip()
+                question_part = parts[1].strip() if len(parts) > 1 else ""
+                
+                st.info(f"**SCENARIO:**\n{scenario_part}")
+                st.warning(f"**QUESTION:**\n{question_part}")
+            else:
+                # Regular AI response
+                st.write(ai_msg)
     
     # Chat input
     if prompt := st.chat_input("Enter your response"):
