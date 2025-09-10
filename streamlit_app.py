@@ -430,49 +430,68 @@ def show_consent_form():
     st.header("Research Participation Consent")
     
     st.markdown("""
-    ### Study Information
+    ### Critical Thinking in Conversational AI Systems
     
-    **Title:** Critical Thinking in Conversational AI Systems
+    Welcome and thank you for considering taking part in this online study.
     
-    **Purpose:** This study investigates how people engage in critical thinking discussions with AI chatbots. Your participation will help improve AI systems for educational purposes.
+    Before you decide we would like you to understand why the research is being done and what it would involve for you. Please contact one of the investigators using the contact details below if you have any questions.
     
-    **What you'll do:**
-    - Answer brief questions about yourself (2 minutes)
-    - Have a discussion with an AI chatbot about a topic (5-10 minutes)  
-    - Complete a feedback questionnaire (3 minutes)
-    - Total time: approximately 10-15 minutes
+    The purpose of this study is to gain information relating to how people engage in critical thinking discussions with AI chatbots. The study aims to improve AI systems for educational purposes.
     
-    **Data Collection & Usage:**
-    - Your conversation messages and questionnaire responses will be recorded
-    - All data is collected anonymously - no personal identifying information is stored
-    - Data will be used for academic research purposes only
-    - Results may be published in academic papers and presentations
-    - Raw conversation data will be stored securely and may be shared with other researchers
+    This study is part of a student research project supported by Loughborough University. The study will be undertaken by [Student name] and supervised by [Supervisor name].
     
-    **Your Rights:**
-    - Participation is entirely voluntary
-    - You may withdraw at any time without penalty
-    - You may request deletion of your data within 30 days by contacting the researcher
-    - No compensation is provided for participation
+    You will be asked to complete an anonymous online study, which should take no longer than 15 minutes to complete. You do not need to do anything before completing the study. This is a low risk activity and no disadvantages or risks have been identified in association with participating.
     
-    **Contact:** For questions about this research, contact the research team via your institution.
+    You must be over the age of 18 and have the capacity to fully understand and consent to this research.
+    
+    Loughborough University will be using information/data from you to undertake this study and will act as the data controller for this study. This means that the University is responsible for looking after your information and using it properly. No identifiable personal information will be collected and so your participation in the study will be confidential. The anonymous data will be used in student dissertations. No individual will be identifiable in any report, presentation, or publication. All information will be securely stored on the University computer systems. Anonymised data will be retained until the final project marks have been verified.
+    
+    After you have read this information and asked any questions you may have, if you are happy to participate, please read the consent section and confirm your consent by checking the tick boxes below. You can withdraw from the study at any time by closing the browser. However, as the study is anonymous once you have submitted the study it will not be possible to withdraw your data from the study.
+    
+    **Contact Details:**  
+    [Tutor name] (Responsible Investigator), School of [Department], Loughborough University, Loughborough, Leicestershire, LE11 3TU, [email]@lboro.ac.uk, 01509 [number]  
+    [Student name] (Main investigator), School of [Department], Loughborough University, Loughborough, Leicestershire, LE11 3TU, [email]@student.lboro.ac.uk
+    
+    **What if I am not happy with how the research was conducted?**  
+    If you are not happy with how the research was conducted, please contact the Secretary of the Ethics Review Sub-Committee, Research & Innovation Office, Hazlerigg Building, Loughborough University, Epinal Way, Loughborough, LE11 3TU. Tel: 01509 222423. Email: researchpolicy@lboro.ac.uk
+    
+    The University also has policies relating to Research Misconduct and Whistle Blowing which are available online at https://www.lboro.ac.uk/internal/research-ethics-integrity/research-integrity/
+    
+    If you require any further information regarding the General Data Protection Regulations, please see: https://www.lboro.ac.uk/privacy/research-privacy/
     
     ---
     """)
     
     with st.form("consent_form"):
-        st.subheader("Consent")
+        st.subheader("Informed Consent")
         
-        consent_1 = st.checkbox("I understand the purpose and procedures of this study")
-        consent_2 = st.checkbox("I understand that my participation is voluntary and I may withdraw at any time")
-        consent_3 = st.checkbox("I understand that my data will be stored anonymously and used for research purposes")
-        consent_4 = st.checkbox("I understand that results may be published in academic venues")
-        consent_5 = st.checkbox("I am 18 years of age or older")
+        st.markdown("**Please read each statement carefully and tick the boxes to confirm your understanding:**")
+        
+        consent_1 = st.checkbox("The purpose and details of this study have been explained to me.")
+        
+        consent_2 = st.checkbox("I understand that this study is designed to further scientific knowledge and that all procedures have received a favourable decision from the Loughborough University Ethics Review Sub-Committee.")
+        
+        consent_3 = st.checkbox("I have read and understood the information sheet and this consent form.")
+        
+        consent_4 = st.checkbox("I have had an opportunity to ask questions about my participation.")
+        
+        consent_5 = st.checkbox("I understand that taking part in the survey is anonymous, only non-identifying demographic information will be collected, e.g. gender.")
+        
+        consent_6 = st.checkbox("I understand that this questionnaire includes sensitive questions about critical thinking and AI interactions.")
+        
+        consent_7 = st.checkbox("I understand that I am under no obligation to take part in the study and can withdraw during the survey by closing the browser but will not be able to withdraw once my responses have been submitted.")
+        
+        consent_8 = st.checkbox("I understand that information I provide will be used for the student's dissertation.")
+        
+        st.markdown("---")
+        st.subheader("Consent to Participate")
+        
+        final_consent = st.checkbox("**I voluntarily agree to take part in this study.**", key="final_consent")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            agree_button = st.form_submit_button("I Consent - Begin Study", type="primary")
+            agree_button = st.form_submit_button("Begin Study", type="primary")
         
         with col2:
             decline_button = st.form_submit_button("I Do Not Consent - Exit", type="secondary")
@@ -482,7 +501,8 @@ def show_consent_form():
             st.stop()
         
         if agree_button:
-            all_consents = all([consent_1, consent_2, consent_3, consent_4, consent_5])
+            all_consents = all([consent_1, consent_2, consent_3, consent_4, consent_5, 
+                               consent_6, consent_7, consent_8, final_consent])
             
             if all_consents:
                 st.session_state.consent_given = True
@@ -652,7 +672,7 @@ def create_conversation_flow_csv():
     
     # Get all participants with their data
     participants_query = """
-    SELECT p.id, p.start_time, p.end_time, p.status,
+    SELECT p.id, p.start_time, p.status,
            q.age, q.education, q.ct_experience,
            q.facione_critical_thinking_score, q.completion_time,
            q.post_q1_easy_to_use, q.post_q2_felt_confident, q.post_q3_use_again,
@@ -711,7 +731,7 @@ def create_conversation_flow_csv():
             'participant_id': participant_id,
             'short_id': short_id,
             'start_time': participant['start_time'],
-            'end_time': participant['end_time'],
+            'end_time': participant.get('completion_time'),
             'status': participant['status'],
             'total_exchanges': exchange_count,
             'age': participant.get('age'),
@@ -748,7 +768,7 @@ def create_post_study_stats_csv():
     
     # Get participants with questionnaire responses and conversation stats
     query = """
-    SELECT p.id, p.start_time, p.end_time, p.status,
+    SELECT p.id, p.start_time, p.status,
            q.age, q.education, q.ct_experience,
            q.facione_critical_thinking_score, q.completion_time,
            q.post_q1_easy_to_use, q.post_q2_felt_confident, q.post_q3_use_again,
