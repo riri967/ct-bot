@@ -111,7 +111,6 @@ def save_questionnaire_responses(participant_data):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # Extract participant ID
     participant_id = st.session_state.participant_id
     
     c.execute('''INSERT INTO questionnaire_responses (
@@ -268,17 +267,10 @@ def main():
     # Initialize database
     init_database()
     
-    # Initialize session state
+    # Initialize session state - ensure one participant per session
     if 'participant_id' not in st.session_state:
         st.session_state.participant_id = str(uuid.uuid4())
-        
-        # Create participant record
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('''INSERT OR IGNORE INTO participants (id, start_time) 
-                     VALUES (?, ?)''', (st.session_state.participant_id, datetime.now()))
-        conn.commit()
-        conn.close()
+        st.session_state.participant_created = False
     
     if 'orchestrator' not in st.session_state:
         st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
@@ -453,6 +445,16 @@ def show_pre_questionnaire():
         submitted = st.form_submit_button("Continue to Discussion")
         
         if submitted:
+            # Create participant record in database when questionnaire is submitted
+            if not st.session_state.get('participant_created', False):
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute('''INSERT OR IGNORE INTO participants (id, start_time, status) 
+                             VALUES (?, ?, ?)''', (st.session_state.participant_id, datetime.now(), 'active'))
+                conn.commit()
+                conn.close()
+                st.session_state.participant_created = True
+            
             # Save participant data (not to database yet)
             st.session_state.participant_data = {
                 'age': age,
@@ -551,6 +553,10 @@ def show_post_questionnaire():
                 'post_q17_other_comments': q17,
                 'facione_critical_thinking_score': getattr(st.session_state, 'facione_score', 2.5)
             })
+            
+            # Save questionnaire responses to database
+            save_questionnaire_responses(st.session_state.participant_data)
+            
             st.session_state.post_questionnaire_completed = True
             st.rerun()
 
@@ -569,116 +575,370 @@ def show_thank_you():
         st.metric("Facione Critical Thinking Score", f"{facione_score:.2f}/4.0" if isinstance(facione_score, (int, float)) else facione_score)
         st.json(st.session_state.participant_data)
 
+def create_conversation_flow_csv():
+    """Create a formatted CSV with conversation flows for each participant"""
+    conn = sqlite3.connect(DB_PATH)
+    
+    # Get all participants with their data
+    participants_query = """
+    SELECT p.id, p.start_time, p.end_time, p.status,
+           q.age, q.education, q.ct_experience,
+           q.facione_critical_thinking_score, q.completion_time,
+           q.post_q1_easy_to_use, q.post_q2_felt_confident, q.post_q3_use_again,
+           q.post_q4_engaging, q.post_q5_natural_flow, q.post_q6_disengagement,
+           q.post_q7_encouraged_reflection, q.post_q8_multiple_perspectives,
+           q.post_q9_critical_thinking_ways, q.post_q10_learned_something,
+           q.post_q11_design_support, q.post_q12_confusion, q.post_q13_application,
+           q.post_q14_improvements, q.post_q15_valuable, q.post_q16_recommend,
+           q.post_q17_other_comments
+    FROM participants p
+    LEFT JOIN questionnaire_responses q ON p.id = q.participant_id
+    ORDER BY p.start_time
+    """
+    
+    participants_df = pd.read_sql_query(participants_query, conn)
+    
+    # Create formatted conversation flow data
+    conversation_flows = []
+    
+    for _, participant in participants_df.iterrows():
+        participant_id = participant['id']
+        short_id = participant_id[:8] + '...'
+        
+        # Get conversations for this participant
+        conv_query = """
+        SELECT user_message, ai_response, timestamp
+        FROM conversations 
+        WHERE participant_id = ? 
+        ORDER BY timestamp
+        """
+        conversations = pd.read_sql_query(conv_query, conn, params=[participant_id])
+        
+        # Get scenario for this participant  
+        scenario_query = """
+        SELECT scenario_text, initial_question
+        FROM study_scenarios 
+        WHERE participant_id = ?
+        """
+        scenario_result = pd.read_sql_query(scenario_query, conn, params=[participant_id])
+        scenario = scenario_result['scenario_text'].iloc[0] if not scenario_result.empty else "No scenario recorded"
+        initial_question = scenario_result['initial_question'].iloc[0] if not scenario_result.empty else "No question recorded"
+        
+        # Build conversation flow
+        conversation_text = f"SCENARIO: {scenario}\n\nINITIAL QUESTION: {initial_question}\n\n"
+        
+        exchange_count = 0
+        for _, conv in conversations.iterrows():
+            if pd.notna(conv['user_message']):
+                exchange_count += 1
+                conversation_text += f"EXCHANGE {exchange_count}:\n"
+                conversation_text += f"Student: {conv['user_message']}\n"
+                conversation_text += f"AI: {conv['ai_response']}\n\n"
+        
+        # Add to flow data
+        flow_row = {
+            'participant_id': participant_id,
+            'short_id': short_id,
+            'start_time': participant['start_time'],
+            'end_time': participant['end_time'],
+            'status': participant['status'],
+            'total_exchanges': exchange_count,
+            'age': participant.get('age'),
+            'education': participant.get('education'),
+            'ct_experience': participant.get('ct_experience'),
+            'facione_score': participant.get('facione_critical_thinking_score'),
+            'full_conversation_flow': conversation_text,
+            'post_q1_easy_to_use': participant.get('post_q1_easy_to_use'),
+            'post_q2_felt_confident': participant.get('post_q2_felt_confident'),
+            'post_q3_use_again': participant.get('post_q3_use_again'),
+            'post_q4_engaging': participant.get('post_q4_engaging'),
+            'post_q5_natural_flow': participant.get('post_q5_natural_flow'),
+            'post_q6_disengagement': participant.get('post_q6_disengagement'),
+            'post_q7_encouraged_reflection': participant.get('post_q7_encouraged_reflection'),
+            'post_q8_multiple_perspectives': participant.get('post_q8_multiple_perspectives'),
+            'post_q9_critical_thinking_ways': participant.get('post_q9_critical_thinking_ways'),
+            'post_q10_learned_something': participant.get('post_q10_learned_something'),
+            'post_q11_design_support': participant.get('post_q11_design_support'),
+            'post_q12_confusion': participant.get('post_q12_confusion'),
+            'post_q13_application': participant.get('post_q13_application'),
+            'post_q14_improvements': participant.get('post_q14_improvements'),
+            'post_q15_valuable': participant.get('post_q15_valuable'),
+            'post_q16_recommend': participant.get('post_q16_recommend'),
+            'post_q17_other_comments': participant.get('post_q17_other_comments')
+        }
+        conversation_flows.append(flow_row)
+    
+    conn.close()
+    return pd.DataFrame(conversation_flows)
+
+def create_post_study_stats_csv():
+    """Create CSV with post-study questionnaire responses and conversation stats"""
+    conn = sqlite3.connect(DB_PATH)
+    
+    # Get participants with questionnaire responses and conversation stats
+    query = """
+    SELECT p.id, p.start_time, p.end_time, p.status,
+           q.age, q.education, q.ct_experience,
+           q.facione_critical_thinking_score, q.completion_time,
+           q.post_q1_easy_to_use, q.post_q2_felt_confident, q.post_q3_use_again,
+           q.post_q4_engaging, q.post_q5_natural_flow, q.post_q6_disengagement,
+           q.post_q7_encouraged_reflection, q.post_q8_multiple_perspectives,
+           q.post_q9_critical_thinking_ways, q.post_q10_learned_something,
+           q.post_q11_design_support, q.post_q12_confusion, q.post_q13_application,
+           q.post_q14_improvements, q.post_q15_valuable, q.post_q16_recommend,
+           q.post_q17_other_comments,
+           COUNT(c.user_message) as total_exchanges,
+           ROUND((julianday(q.completion_time) - julianday(p.start_time)) * 24 * 60, 2) as session_duration_minutes
+    FROM participants p
+    LEFT JOIN questionnaire_responses q ON p.id = q.participant_id
+    LEFT JOIN conversations c ON p.id = c.participant_id AND c.user_message IS NOT NULL
+    WHERE q.participant_id IS NOT NULL
+    GROUP BY p.id
+    ORDER BY p.start_time
+    """
+    
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
 def show_admin_panel():
     """Show admin panel for data export - add ?admin=true to URL"""
     st.title("🔧 Study Admin Panel")
     
-    # Quick stats
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        
-        total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
-        active_convs = pd.read_sql_query(
-            "SELECT COUNT(DISTINCT participant_id) as count FROM conversations WHERE user_message IS NOT NULL", 
-            conn
-        )['count'][0]
-        total_exchanges = pd.read_sql_query(
-            "SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", 
-            conn
-        )['count'][0]
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs(["📊 Data Export", "💬 Conversation Viewer", "🧹 Cleanup"])
+    
+    with tab1:
+        # Export options
+        st.subheader("📥 Download Study Data")
         
         col1, col2, col3 = st.columns(3)
+        
         with col1:
-            st.metric("Total Participants", total_participants)
+            if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
+                try:
+                    df = create_post_study_stats_csv()
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Post-Study Data CSV",
+                        data=csv,
+                        file_name=f"post_study_questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+                    st.success(f"✅ Generated CSV with {len(df)} completed participants")
+                except Exception as e:
+                    st.error(f"Error creating post-study CSV: {e}")
+        
         with col2:
-            st.metric("Active Conversations", active_convs)
+            if st.button("💬 Conversation Flow Export", type="primary"):
+                try:
+                    df = create_conversation_flow_csv()
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Conversation Flow CSV",
+                        data=csv,
+                        file_name=f"conversation_flows_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+                    st.success(f"✅ Generated conversation flow CSV with {len(df)} participants")
+                except Exception as e:
+                    st.error(f"Error creating conversation flow CSV: {e}")
+        
         with col3:
-            st.metric("Total Exchanges", total_exchanges)
+            if st.button("📊 Raw Data Tables", type="secondary"):
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    tables = ['participants', 'conversations', 'questionnaire_responses', 'study_scenarios']
+                    
+                    for table in tables:
+                        try:
+                            df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+                            csv = df.to_csv(index=False)
+                            st.download_button(
+                                label=f"Download {table}.csv",
+                                data=csv,
+                                file_name=f"{table}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                key=f"download_{table}"
+                            )
+                        except Exception as e:
+                            st.write(f"⚠️ {table}: {e}")
+                    
+                    conn.close()
+                    st.success("✅ Raw data tables ready for download")
+                except Exception as e:
+                    st.error(f"Error creating raw data exports: {e}")
+    
+    with tab2:
+        st.subheader("💬 Individual Conversation Histories")
         
-        st.markdown("---")
-        
-        # Data export
-        if st.button("📥 Export All Data"):
-            # Export participants
-            participants_df = pd.read_sql_query("SELECT * FROM participants ORDER BY start_time DESC", conn)
-            conversations_df = pd.read_sql_query("""
-                SELECT * FROM conversations 
-                ORDER BY participant_id, timestamp
-            """, conn)
-            
-            # Try to get questionnaire data if it exists
-            try:
-                questionnaire_df = pd.read_sql_query("SELECT * FROM questionnaire_responses", conn)
-            except:
-                questionnaire_df = pd.DataFrame()
-            
-            st.download_button(
-                label="⬇️ Download Participants CSV",
-                data=participants_df.to_csv(index=False),
-                file_name=f"participants_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            
-            st.download_button(
-                label="⬇️ Download Conversations CSV",
-                data=conversations_df.to_csv(index=False),
-                file_name=f"conversations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            
-            if not questionnaire_df.empty:
-                st.download_button(
-                    label="⬇️ Download Questionnaires CSV",
-                    data=questionnaire_df.to_csv(index=False),
-                    file_name=f"questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-        
-        # Recent activity
-        st.subheader("📋 Recent Activity")
-        recent_df = pd.read_sql_query("""
-            SELECT 
-                p.id as participant_id,
-                p.start_time,
-                COUNT(c.id) as total_messages,
-                COUNT(CASE WHEN c.user_message IS NOT NULL THEN 1 END) as user_responses
+        # Get list of participants with conversations
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            participants_query = """
+            SELECT DISTINCT p.id, p.start_time, q.age, q.education, 
+                   COUNT(c.user_message) as exchanges,
+                   q.facione_critical_thinking_score
             FROM participants p
-            LEFT JOIN conversations c ON p.id = c.participant_id
-            GROUP BY p.id, p.start_time
+            LEFT JOIN questionnaire_responses q ON p.id = q.participant_id
+            LEFT JOIN conversations c ON p.id = c.participant_id AND c.user_message IS NOT NULL
+            WHERE q.participant_id IS NOT NULL
+            GROUP BY p.id
             ORDER BY p.start_time DESC
-            LIMIT 20
-        """, conn)
+            """
+            participants_df = pd.read_sql_query(participants_query, conn)
+            
+            if not participants_df.empty:
+                # Create selectbox options
+                options = []
+                for _, row in participants_df.iterrows():
+                    short_id = row['id'][:8] + '...'
+                    score = f"{row['facione_critical_thinking_score']:.1f}" if pd.notna(row['facione_critical_thinking_score']) else "N/A"
+                    options.append(f"{short_id} | {row['exchanges']} exchanges | Score: {score} | {row['start_time']}")
+                
+                selected = st.selectbox("Select participant to view conversation:", 
+                                      options, 
+                                      key="participant_selector")
+                
+                if selected:
+                    # Extract participant ID from selection
+                    participant_idx = options.index(selected)
+                    participant_id = participants_df.iloc[participant_idx]['id']
+                    
+                    # Get full conversation
+                    conv_query = """
+                    SELECT user_message, ai_response, timestamp
+                    FROM conversations 
+                    WHERE participant_id = ? 
+                    ORDER BY timestamp
+                    """
+                    conversations = pd.read_sql_query(conv_query, conn, params=[participant_id])
+                    
+                    # Get scenario
+                    scenario_query = """
+                    SELECT scenario_text, initial_question
+                    FROM study_scenarios 
+                    WHERE participant_id = ?
+                    """
+                    scenario_result = pd.read_sql_query(scenario_query, conn, params=[participant_id])
+                    
+                    # Display conversation
+                    if not scenario_result.empty:
+                        st.subheader("🎯 Discussion Scenario")
+                        st.write(scenario_result['scenario_text'].iloc[0])
+                        st.write(f"**Initial Question:** {scenario_result['initial_question'].iloc[0]}")
+                        st.divider()
+                    
+                    st.subheader("💬 Conversation History")
+                    
+                    exchange_count = 0
+                    for _, conv in conversations.iterrows():
+                        if pd.notna(conv['user_message']):
+                            exchange_count += 1
+                            st.write(f"**Exchange {exchange_count}** _{conv['timestamp']}_")
+                            
+                            with st.container():
+                                st.markdown(f"**👤 Student:** {conv['user_message']}")
+                                st.markdown(f"**🤖 AI:** {conv['ai_response']}")
+                            st.divider()
+                    
+                    if exchange_count == 0:
+                        st.info("No conversation exchanges found for this participant.")
+            else:
+                st.info("No completed participants found.")
+            
+            conn.close()
+            
+        except Exception as e:
+            st.error(f"Error loading conversations: {e}")
+    
+    with tab3:
+        st.subheader("🧹 Database Cleanup")
+        col1, col2 = st.columns(2)
         
-        # Make participant IDs shorter for display
-        recent_df['short_id'] = recent_df['participant_id'].str[:8] + '...'
-        display_df = recent_df[['short_id', 'start_time', 'total_messages', 'user_responses']].copy()
-        st.dataframe(display_df, use_container_width=True)
+        with col1:
+            if st.button("Remove Empty Participants", type="secondary"):
+                conn = sqlite3.connect(DB_PATH)
+                # Remove participants with no questionnaire responses and no conversations
+                result = conn.execute('''
+                    DELETE FROM participants 
+                    WHERE id NOT IN (SELECT DISTINCT participant_id FROM questionnaire_responses)
+                    AND id NOT IN (SELECT DISTINCT participant_id FROM conversations WHERE user_message IS NOT NULL)
+                ''')
+                deleted_count = result.rowcount
+                conn.commit()
+                conn.close()
+                st.success(f"Removed {deleted_count} empty participant records")
+                st.rerun()
         
-        # Conversation preview
-        st.subheader("💬 Latest Conversations")
-        latest_convs = pd.read_sql_query("""
-            SELECT 
-                SUBSTR(participant_id, 1, 8) || '...' as participant,
-                user_message,
-                ai_response,
-                timestamp
-            FROM conversations 
-            WHERE user_message IS NOT NULL
-            ORDER BY timestamp DESC
-            LIMIT 10
-        """, conn)
+        with col2:
+            # Show count of empty participants
+            conn = sqlite3.connect(DB_PATH)
+            empty_count = pd.read_sql_query('''
+                SELECT COUNT(*) as count FROM participants 
+                WHERE id NOT IN (SELECT DISTINCT participant_id FROM questionnaire_responses)
+                AND id NOT IN (SELECT DISTINCT participant_id FROM conversations WHERE user_message IS NOT NULL)
+            ''', conn)['count'][0]
+            conn.close()
+            st.metric("Empty Participants", empty_count)
         
-        for _, row in latest_convs.iterrows():
-            with st.expander(f"{row['participant']} - {row['timestamp'][:16]}"):
-                st.write("**Student:**", row['user_message'])
-                ai_preview = row['ai_response'][:150] + "..." if len(row['ai_response']) > 150 else row['ai_response']
-                st.write("**AI:**", ai_preview)
-        
-        conn.close()
-        
-    except Exception as e:
-        st.error(f"Database error: {e}")
-        st.info("Note: This admin panel works with the deployed database. Make sure the database exists and is accessible.")
+        # Quick stats for cleanup tab
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            
+            total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
+            active_convs = pd.read_sql_query(
+                "SELECT COUNT(DISTINCT participant_id) as count FROM conversations WHERE user_message IS NOT NULL", 
+                conn
+            )['count'][0]
+            total_exchanges = pd.read_sql_query(
+                "SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", 
+                conn
+            )['count'][0]
+            completed_questionnaires = pd.read_sql_query(
+                "SELECT COUNT(*) as count FROM questionnaire_responses", 
+                conn
+            )['count'][0]
+            
+            st.divider()
+            st.subheader("📈 Database Overview")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Participants", total_participants)
+            with col2:
+                st.metric("Active Conversations", active_convs)
+            with col3:
+                st.metric("Total Exchanges", total_exchanges)
+            with col4:
+                st.metric("Completed Questionnaires", completed_questionnaires)
+            
+            conn.close()
+            
+        except Exception as e:
+            st.error(f"Error loading stats: {e}")
+    
+    # Add stats to first tab too
+    with tab1:
+        st.divider()
+        st.subheader("📈 Study Overview")
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            
+            total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
+            completed_questionnaires = pd.read_sql_query("SELECT COUNT(*) as count FROM questionnaire_responses", conn)['count'][0]
+            total_exchanges = pd.read_sql_query("SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", conn)['count'][0]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Registered", total_participants)
+            with col2:
+                st.metric("Completed Studies", completed_questionnaires)
+            with col3:
+                st.metric("Total Exchanges", total_exchanges)
+            
+            conn.close()
+        except Exception as e:
+            st.error(f"Error loading overview: {e}")
 
 if __name__ == "__main__":
     main()
