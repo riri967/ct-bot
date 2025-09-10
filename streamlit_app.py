@@ -438,7 +438,7 @@ def show_consent_form():
     
     The purpose of this study is to gain information relating to how people engage in critical thinking discussions with AI chatbots. The study aims to improve AI systems for educational purposes.
     
-    This study is part of a student research project supported by Loughborough University. The study will be undertaken by [Student name] and supervised by [Supervisor name].
+    This study is part of a student research project supported by Loughborough University. The study will be undertaken by Rianna Agathocleous and supervised by Varuna De Sliva.
     
     You will be asked to complete an anonymous online study, which should take no longer than 15 minutes to complete. You do not need to do anything before completing the study. This is a low risk activity and no disadvantages or risks have been identified in association with participating.
     
@@ -449,8 +449,8 @@ def show_consent_form():
     After you have read this information and asked any questions you may have, if you are happy to participate, please read the consent section and confirm your consent by checking the tick boxes below. You can withdraw from the study at any time by closing the browser. However, as the study is anonymous once you have submitted the study it will not be possible to withdraw your data from the study.
     
     **Contact Details:**  
-    [Tutor name] (Responsible Investigator), School of [Department], Loughborough University, Loughborough, Leicestershire, LE11 3TU, [email]@lboro.ac.uk, 01509 [number]  
-    [Student name] (Main investigator), School of [Department], Loughborough University, Loughborough, Leicestershire, LE11 3TU, [email]@student.lboro.ac.uk
+    Varuna De Silva(Responsible Investigator), Loughborough London, Loughborough University, Loughborough, Leicestershire, LE11 3TU, V.d.de-silva@lboro.ac.uk  
+    Rianna Agathocleous (Main investigator), Loughborough London, Loughborough University, Loughborough, Leicestershire, LE11 3TU, R-agathocleous-20@student.lboro.ac.uk
     
     **What if I am not happy with how the research was conducted?**  
     If you are not happy with how the research was conducted, please contact the Secretary of the Ethics Review Sub-Committee, Research & Innovation Office, Hazlerigg Building, Loughborough University, Epinal Way, Loughborough, LE11 3TU. Tel: 01509 222423. Email: researchpolicy@lboro.ac.uk
