@@ -272,6 +272,9 @@ def main():
         st.session_state.participant_id = str(uuid.uuid4())
         st.session_state.participant_created = False
     
+    if 'consent_given' not in st.session_state:
+        st.session_state.consent_given = False
+    
     if 'orchestrator' not in st.session_state:
         st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
     
@@ -296,8 +299,11 @@ def main():
     # Title
     st.title("Critical Thinking Study")
     
-    # Study flow management
-    if not st.session_state.questionnaire_completed:
+    # Study flow management - now includes consent
+    if not st.session_state.consent_given:
+        show_consent_form()
+        return
+    elif not st.session_state.questionnaire_completed:
         show_pre_questionnaire()
         return
     elif st.session_state.conversation_ended and not st.session_state.post_questionnaire_completed:
@@ -418,6 +424,71 @@ def main():
         
         st.session_state.conversation_ended = True
         st.rerun()
+
+def show_consent_form():
+    """Display consent form and information"""
+    st.header("Research Participation Consent")
+    
+    st.markdown("""
+    ### Study Information
+    
+    **Title:** Critical Thinking in Conversational AI Systems
+    
+    **Purpose:** This study investigates how people engage in critical thinking discussions with AI chatbots. Your participation will help improve AI systems for educational purposes.
+    
+    **What you'll do:**
+    - Answer brief questions about yourself (2 minutes)
+    - Have a discussion with an AI chatbot about a topic (5-10 minutes)  
+    - Complete a feedback questionnaire (3 minutes)
+    - Total time: approximately 10-15 minutes
+    
+    **Data Collection & Usage:**
+    - Your conversation messages and questionnaire responses will be recorded
+    - All data is collected anonymously - no personal identifying information is stored
+    - Data will be used for academic research purposes only
+    - Results may be published in academic papers and presentations
+    - Raw conversation data will be stored securely and may be shared with other researchers
+    
+    **Your Rights:**
+    - Participation is entirely voluntary
+    - You may withdraw at any time without penalty
+    - You may request deletion of your data within 30 days by contacting the researcher
+    - No compensation is provided for participation
+    
+    **Contact:** For questions about this research, contact the research team via your institution.
+    
+    ---
+    """)
+    
+    with st.form("consent_form"):
+        st.subheader("Consent")
+        
+        consent_1 = st.checkbox("I understand the purpose and procedures of this study")
+        consent_2 = st.checkbox("I understand that my participation is voluntary and I may withdraw at any time")
+        consent_3 = st.checkbox("I understand that my data will be stored anonymously and used for research purposes")
+        consent_4 = st.checkbox("I understand that results may be published in academic venues")
+        consent_5 = st.checkbox("I am 18 years of age or older")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            agree_button = st.form_submit_button("I Consent - Begin Study", type="primary")
+        
+        with col2:
+            decline_button = st.form_submit_button("I Do Not Consent - Exit", type="secondary")
+        
+        if decline_button:
+            st.error("Thank you for your time. You may close this browser tab.")
+            st.stop()
+        
+        if agree_button:
+            all_consents = all([consent_1, consent_2, consent_3, consent_4, consent_5])
+            
+            if all_consents:
+                st.session_state.consent_given = True
+                st.rerun()
+            else:
+                st.error("Please tick all consent boxes to proceed with the study.")
 
 def show_pre_questionnaire():
     """Display pre-study questionnaire"""
