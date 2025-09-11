@@ -509,19 +509,41 @@ def generate_stimulus(topic: str, rag_system: RAGSystem) -> str:
     
     print(f"Using {'real-world' if real_world_context else 'fallback'} context for stimulus generation")
     
-    stimulus_prompt = f"""Using the context below, write a realistic scenario about {topic}.
+    # Create more focused context to avoid nonsensical combinations
+    focused_context = ""
+    if context_docs and real_world_context:
+        # Filter context for relevance to main topic
+        relevant_parts = []
+        topic_keywords = topic.lower().split()
+        
+        for doc in context_docs[:2]:  # Use only top 2 most relevant
+            source = doc.get('metadata', {}).get('source', 'Source')
+            text = doc.get('text', '')[:200]  
+            
+            # Check if document is actually relevant to main topic
+            relevance_score = sum(1 for keyword in topic_keywords if keyword in text.lower())
+            if relevance_score > 0 or source in ['OpenAlex', 'GOV.UK']:  # Prioritize academic/policy sources
+                relevant_parts.append(f"{source}: {text}")
+        
+        focused_context = "\n".join(relevant_parts) if relevant_parts else f"Contemporary {topic} considerations"
+    else:
+        focused_context = f"Current policy and ethical considerations around {topic}"
 
-CONTEXT:
-{context_text}
+    stimulus_prompt = f"""Write a realistic policy/ethical scenario about {topic}.
 
-Write a factual scenario (180-220 words) with:
-- A specific organization/location (use realistic names)
-- The decision or dilemma they face  
-- Different stakeholders with conflicting views
-- Concrete details (costs, numbers, names)
-- Current, realistic circumstances
+CONTEXT: {focused_context}
 
-Write like a news report - factual and neutral. Do not include commentary, questions, or introductory phrases. Start directly with the scenario content."""
+Create a coherent scenario (180-220 words) featuring:
+- One specific organization making a decision about {topic}
+- Clear stakeholders with different positions 
+- Realistic details (costs, timeframes, names)
+- A focused ethical/policy dilemma
+
+Requirements:
+- Stay focused on the main topic: {topic}
+- Write like a news report - factual and neutral
+- No commentary or questions
+- Start directly with the scenario"""
     
     # Check if RAG model is available
     if not rag_system or not rag_system.model:

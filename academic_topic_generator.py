@@ -18,11 +18,13 @@ from rag_stimulus_pipeline import DocumentRetriever, RAGSystem
 BASE_CONCEPTS = []  # Empty by default, populated by seed_concepts()
 
 SITUATIONS = [
-    "hiring app dilemma", "NHS data sharing debate", "school surveillance issue", 
-    "workplace monitoring system", "social media algorithm controversy", "voting technology concerns",
-    "police body camera policy", "university funding crisis", "hospital resource allocation",
-    "council budget decision", "transport app tracking", "housing algorithm bias",
-    "banking AI credit system", "sports performance monitoring", "court evidence technology"
+    "school surveillance policy", "workplace monitoring ethics", "NHS data sharing policy",
+    "social media algorithm transparency", "police body camera implementation", 
+    "university AI admissions system", "council budget allocation priorities",
+    "housing algorithm fairness review", "banking AI credit decisions",
+    "transport data privacy concerns", "hospital resource allocation system",
+    "voting technology security debate", "employee performance monitoring",
+    "court AI evidence evaluation", "education technology privacy"
 ]
 
 def seed_concepts() -> List[str]:
