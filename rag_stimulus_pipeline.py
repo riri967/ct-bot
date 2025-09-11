@@ -283,16 +283,33 @@ class DocumentRetriever:
         return all_docs
 
 class RAGVectorStore:
-    """Chroma-based vector store for document embeddings"""
+    """Chroma-based vector store for document embeddings with cloud compatibility"""
     
     def __init__(self):
-        self.client = chromadb.Client()
-        self.collection = self.client.get_or_create_collection(
-            name="rag_documents",
-            metadata={"hnsw:space": "cosine"}
-        )
-        # TODO: Replace with actual OpenAI embeddings
-        print("Note: Using placeholder embeddings - integrate OpenAI for production")
+        self.client = None
+        self.collection = None
+        self.initialized = False
+        
+        try:
+            # Try cloud-compatible ChromaDB initialization
+            import tempfile
+            import os
+            
+            # Use temporary directory for cloud deployment
+            temp_dir = tempfile.mkdtemp(prefix='chromadb_')
+            
+            self.client = chromadb.PersistentClient(path=temp_dir)
+            self.collection = self.client.get_or_create_collection(
+                name="rag_documents",
+                metadata={"hnsw:space": "cosine"}
+            )
+            self.initialized = True
+            print(f"ChromaDB initialized successfully with temp directory: {temp_dir}")
+            
+        except Exception as e:
+            print(f"ChromaDB initialization failed: {e}")
+            print("RAG will use fallback mode without vector search")
+            self.initialized = False
     
     def _get_embedding(self, text: str) -> List[float]:
         """Placeholder embedding function - TODO: Integrate OpenAI embeddings"""
@@ -308,7 +325,9 @@ class RAGVectorStore:
     
     def index_docs(self, docs: List[Doc]) -> None:
         """Embed and store documents in vector database"""
-        if not docs:
+        if not docs or not self.initialized:
+            if not self.initialized:
+                print("Vector store not initialized - skipping document indexing")
             return
         
         documents = []
@@ -329,16 +348,24 @@ class RAGVectorStore:
                 embeddings.append(self._get_embedding(doc.text))
         
         if documents:
-            self.collection.add(
-                documents=documents,
-                metadatas=metadatas,
-                ids=ids,
-                embeddings=embeddings
-            )
-            print(f"Indexed {len(documents)} documents")
+            try:
+                self.collection.add(
+                    documents=documents,
+                    metadatas=metadatas,
+                    ids=ids,
+                    embeddings=embeddings
+                )
+                print(f"Indexed {len(documents)} documents")
+            except Exception as e:
+                print(f"Document indexing failed: {e}")
+                self.initialized = False
     
     def query(self, question: str, top_k: int = 5) -> List[Dict]:
         """Query vector store for relevant documents"""
+        if not self.initialized:
+            print("Vector store not initialized - returning empty results")
+            return []
+            
         try:
             results = self.collection.query(
                 query_embeddings=[self._get_embedding(question)],
@@ -362,38 +389,71 @@ class RAGVectorStore:
             return []
 
 class RAGSystem:
-    """Complete RAG system combining retrieval and generation"""
+    """Complete RAG system combining retrieval and generation with cloud fallbacks"""
     
     def __init__(self):
         self.retriever = DocumentRetriever()
         self.vectorstore = RAGVectorStore()
+        self.rag_operational = self.vectorstore.initialized
         
         # Use dedicated API key for stimulus generation
-        from api_utils import get_model_with_retry
-        self.model = get_model_with_retry(
-            model_name="gemini-2.0-flash",
-            purpose='stimulus_generation',
-            temperature=0.7,
-            top_p=0.9,
-            top_k=50,
-            max_output_tokens=2048
-        )
-        print("Initialised RAG system with Gemini model")
+        try:
+            from api_utils import get_model_with_retry
+            self.model = get_model_with_retry(
+                model_name="gemini-2.0-flash",
+                purpose='stimulus_generation',
+                temperature=0.7,
+                top_p=0.9,
+                top_k=50,
+                max_output_tokens=2048
+            )
+            print(f"RAG system initialized - Vector store operational: {self.rag_operational}")
+        except Exception as e:
+            print(f"RAG model initialization failed: {e}")
+            self.model = None
+            self.rag_operational = False
     
     def query_rag(self, question: str) -> List[Dict]:
         """Main RAG query function: retrieve, index, and return relevant documents"""
-        print(f"Processing RAG query: {question}")
+        print(f"Processing RAG query: {question} (operational: {self.rag_operational})")
         
         # Retrieve documents from external sources
         docs = self.retriever.retrieve(question)
+        print(f"Retrieved {len(docs)} documents from external APIs")
         
-        # Index retrieved documents
+        if not self.rag_operational:
+            # Return documents without vector search when ChromaDB unavailable
+            if docs:
+                return [{
+                    'text': doc.text,
+                    'metadata': {
+                        'title': doc.title,
+                        'url': doc.url,
+                        'source': doc.source,
+                        'published': doc.published or ''
+                    }
+                } for doc in docs[:5]]  # Return top 5 docs
+            else:
+                print("No external docs retrieved and vector store unavailable - using fallback")
+                return self._get_fallback_docs(question)
+        
+        # Normal RAG pipeline when vector store is operational
         self.vectorstore.index_docs(docs)
-        
-        # Query for most relevant documents
         relevant_docs = self.vectorstore.query(question, top_k=5)
         
-        return relevant_docs
+        return relevant_docs if relevant_docs else self._get_fallback_docs(question)
+    
+    def _get_fallback_docs(self, question: str) -> List[Dict]:
+        """Provide fallback documents when RAG system fails"""
+        return [{
+            'text': f"This scenario explores the complex considerations around {question}, involving multiple stakeholders with different priorities and evidence-based positions that warrant careful critical analysis.",
+            'metadata': {
+                'title': f"Critical Thinking Scenario: {question}",
+                'url': 'fallback://scenario',
+                'source': 'Educational Content',
+                'published': '2024-01-01'
+            }
+        }]
     
     def generate_answer(self, question: str, context_docs: List[Dict]) -> str:
         """Generate answer using LLM with retrieved context"""
@@ -427,20 +487,27 @@ ANSWER:"""
             return f"Error generating response: {e}"
 
 def generate_stimulus(topic: str, rag_system: RAGSystem) -> str:
-    """Generate concrete situational stimulus based on topic using RAG"""
-    print(f"Generating situation-based stimulus for: {topic}")
+    """Generate concrete situational stimulus based on topic using RAG with fallbacks"""
+    print(f"Generating situation-based stimulus for: {topic} (RAG operational: {rag_system.rag_operational})")
     
-    # Retrieve contextual information
-    context_docs = rag_system.query_rag(topic)
+    # Try to retrieve contextual information
+    context_docs = rag_system.query_rag(topic) if rag_system else []
     
     # Build context for stimulus generation
     context_summary = []
-    for doc in context_docs[:3]:  # Use top 3 most relevant
-        source = doc.get('metadata', {}).get('source', 'Source')
-        text = doc.get('text', '')[:150]
-        context_summary.append(f"{source}: {text}")
+    real_world_context = False
     
-    context_text = "\n".join(context_summary)
+    if context_docs:
+        for doc in context_docs[:3]:  # Use top 3 most relevant
+            source = doc.get('metadata', {}).get('source', 'Source')
+            text = doc.get('text', '')[:150]
+            if source not in ['Educational Content', 'fallback']:
+                real_world_context = True
+            context_summary.append(f"{source}: {text}")
+    
+    context_text = "\n".join(context_summary) if context_summary else f"Exploring real-world considerations around {topic}"
+    
+    print(f"Using {'real-world' if real_world_context else 'fallback'} context for stimulus generation")
     
     stimulus_prompt = f"""Using the context below, write a realistic scenario about {topic}.
 
@@ -456,6 +523,11 @@ Write a factual scenario (180-220 words) with:
 
 Write like a news report - factual and neutral. Do not include commentary, questions, or introductory phrases. Start directly with the scenario content."""
     
+    # Check if RAG model is available
+    if not rag_system or not rag_system.model:
+        print("RAG model unavailable - using hardcoded fallback scenario")
+        return _get_fallback_scenario(topic)
+    
     try:
         from api_utils import generate_with_retry
         response_text = generate_with_retry(rag_system.model, stimulus_prompt)
@@ -468,11 +540,18 @@ Write like a news report - factual and neutral. Do not include commentary, quest
             lines = response_text.split('\n')
             if len(lines) > 1:
                 response_text = '\n'.join(lines[1:]).strip()
+        
+        print(f"Generated stimulus successfully ({'with' if real_world_context else 'without'} real-world context)")
         return response_text
+        
     except Exception as e:
-        # Fallback to concrete scenario
-        concept = topic.split()[0] if topic else "technology"
-        return f"""**The Smart City Surveillance Dilemma**
+        print(f"Stimulus generation failed: {e} - using fallback scenario")
+        return _get_fallback_scenario(topic)
+
+def _get_fallback_scenario(topic: str) -> str:
+    """Provide hardcoded fallback scenario when all systems fail"""
+    concept = topic.split()[0] if topic else "technology"
+    return f"""The Smart City Surveillance Dilemma
 
 GreenVale City Council has approved a £15 million smart city project that would install 2,000 AI-powered cameras throughout the town. The system, developed by SecureWatch Technologies, promises to reduce crime by 40% through facial recognition and behaviour analysis.
 
