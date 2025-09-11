@@ -155,14 +155,16 @@ Write only the question sentence with no extra text:"""
             phase = "end"
             phase_guidance = "Use integrative, reflective questions. Promote synthesis and metacognition."
         
-        # Choose Socratic technique based on phase
+        # Choose Socratic technique based on phase with variety
         techniques = {
-            "beginning": ["clarification", "personal_relevance", "example_seeking", "curiosity_building"],
-            "middle": ["assumption_probing", "evidence_examination", "perspective_taking", "implication_exploration"],
-            "end": ["synthesis_building", "meta_questioning", "bridge_building", "reflection"]
+            "beginning": ["clarification", "personal_relevance", "example_seeking", "curiosity_building", "assumption_probing"],
+            "middle": ["assumption_probing", "evidence_examination", "perspective_taking", "clarification", "meta_questioning"],
+            "end": ["synthesis_building", "meta_questioning", "reflection", "perspective_taking", "evidence_examination"]
         }
         
-        technique = random.choice(techniques[phase])
+        # Avoid overusing implication_exploration which leads to "how would this play out" questions
+        available_techniques = [t for t in techniques[phase] if t != "implication_exploration" or random.random() < 0.3]
+        technique = random.choice(available_techniques if available_techniques else techniques[phase])
         
         # Choose Paul-Elder focus (balance coverage)
         paul_elder_elements = ["purpose", "questions", "information", "inference", 
@@ -189,17 +191,17 @@ CONVERSATION CONTEXT: {conversation_context}
 TOPIC FOCUS: {self.current_topic or 'general critical thinking'}{rag_context_text}
 
 SOCRATIC TECHNIQUE: {technique}
-- clarification: Ask them to explain more clearly
-- assumption_probing: Help examine what they're taking for granted  
-- evidence_examination: Guide them to consider evidence quality
-- perspective_taking: Help them see different viewpoints
-- implication_exploration: Help them think through consequences
-- personal_relevance: Connect to their experiences
-- example_seeking: Ask for concrete examples
-- curiosity_building: Spark natural curiosity
-- synthesis_building: Help combine ideas
-- meta_questioning: Help them think about their thinking
-- reflection: Encourage self-reflection
+- clarification: "What do you mean when you say...?" or "Help me understand your thinking about..."
+- assumption_probing: "What are you taking for granted here?" or "What if that assumption doesn't hold?"  
+- evidence_examination: "What evidence supports that view?" or "How reliable is that source?"
+- perspective_taking: "How might [stakeholder] see this differently?" or "What would the other side argue?"
+- implication_exploration: "If that's true, what follows?" or "What are the broader consequences?"
+- personal_relevance: "Have you experienced something similar?" or "How does this connect to your life?"
+- example_seeking: "Can you give me a specific instance?" or "What would that look like in practice?"
+- curiosity_building: "What puzzles you most about this?" or "What would you want to investigate?"
+- synthesis_building: "How do these ideas connect?" or "What patterns do you see?"
+- meta_questioning: "How did you arrive at that conclusion?" or "What's your thinking process here?"
+- reflection: "What have you learned about your own reasoning?" or "How has your view shifted?"
 
 PAUL-ELDER FOCUS: {least_covered}
 - purpose: Explore goals and intentions
@@ -219,12 +221,27 @@ ESSENTIAL PRINCIPLES:
 5. Ask questions that make them think deeper
 6. Keep it conversational and natural
 7. Challenge them respectfully
+8. AVOID repetitive patterns like "How would this play out?" or "Can you describe the situation?"
+9. Focus on ONE specific aspect of their response, not broad scenarios
+10. Ask about their reasoning process, not just outcomes
 
-EXAMPLES OF DIRECT ENGAGEMENT:
+EXAMPLES OF DIRECT ENGAGEMENT (vary your approach):
 - "You've identified something crucial about..."
 - "Following that logic, it seems like..."
 - "Your point about X raises the question of..."
 - "What you're describing sounds like..."
+- "That distinction you're making between X and Y..."
+- "The tension you've highlighted between..."
+- "When you say [their exact words], what drives that thinking?"
+- "I'm curious about how you weighed..."
+
+AVOID THESE REPETITIVE PATTERNS:
+- "How do you think this would play out?"
+- "Can you describe what might happen?"
+- "What would the situation look like?"
+- "How would this scenario develop?"
+
+Instead, focus on their specific reasoning, assumptions, or the logic behind their statements.
 
 Create a response that feels like you're genuinely thinking alongside them."""
 
