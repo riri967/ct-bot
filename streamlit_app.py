@@ -574,17 +574,87 @@ def create_post_study_stats_csv():
     admin_data = db_manager.get_admin_data()
     return admin_data['questionnaires']
 
+def test_rag_system():
+    """Test RAG system components for debugging"""
+    st.subheader("🔍 RAG System Diagnostics")
+    
+    test_results = {}
+    
+    # Test 1: RAG System Import
+    try:
+        from rag_stimulus_pipeline import RAGSystem, DocumentRetriever
+        test_results["RAG Import"] = "✅ Success"
+    except Exception as e:
+        test_results["RAG Import"] = f"❌ Failed: {e}"
+    
+    # Test 2: ChromaDB
+    try:
+        import chromadb
+        client = chromadb.Client()
+        collection = client.get_or_create_collection("test")
+        test_results["ChromaDB"] = "✅ Working"
+    except Exception as e:
+        test_results["ChromaDB"] = f"❌ Failed: {e}"
+    
+    # Test 3: External APIs
+    import requests
+    apis_to_test = {
+        "OpenAlex": "https://api.openalex.org/works?search=ethics&per_page=1",
+        "Wikipedia": "https://en.wikipedia.org/api/rest_v1/page/summary/Ethics",
+        "GDELT": "https://api.gdeltproject.org/api/v2/doc/doc?query=ethics&mode=artlist&maxrecords=1&format=json",
+        "GOV.UK": "https://www.gov.uk/api/search.json?q=ethics&count=1"
+    }
+    
+    for api_name, url in apis_to_test.items():
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                test_results[f"{api_name} API"] = "✅ Accessible"
+            else:
+                test_results[f"{api_name} API"] = f"⚠️ HTTP {response.status_code}"
+        except Exception as e:
+            test_results[f"{api_name} API"] = f"❌ Failed: {str(e)[:50]}..."
+    
+    # Test 4: RAG System Initialization
+    try:
+        from rag_stimulus_pipeline import RAGSystem
+        rag_system = RAGSystem()
+        test_results["RAG System Init"] = "✅ Initialized"
+        
+        # Test document retrieval
+        docs = rag_system.query_rag("test query")
+        test_results["Document Retrieval"] = f"✅ Retrieved {len(docs)} documents"
+        
+    except Exception as e:
+        test_results["RAG System Init"] = f"❌ Failed: {e}"
+        test_results["Document Retrieval"] = "❌ Skipped (init failed)"
+    
+    # Display results
+    for test_name, result in test_results.items():
+        if "✅" in result:
+            st.success(f"**{test_name}**: {result}")
+        elif "⚠️" in result:
+            st.warning(f"**{test_name}**: {result}")
+        else:
+            st.error(f"**{test_name}**: {result}")
+    
+    return test_results
+
 def show_admin_panel():
     """Show admin panel for data export - add ?admin=true to URL"""
     st.title("🔧 Study Admin Panel")
     
-    # Export options
-    st.subheader("📥 Download Study Data")
+    # Create tabs for different admin functions
+    tab1, tab2 = st.tabs(["📥 Data Export", "🔍 System Diagnostics"])
     
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
+    with tab1:
+        # Export options
+        st.subheader("📥 Download Study Data")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
             try:
                 df = create_post_study_stats_csv()
                 csv = df.to_csv(index=False)
@@ -634,28 +704,79 @@ def show_admin_panel():
                 st.success("✅ Raw data tables ready for download")
             except Exception as e:
                 st.error(f"Error creating raw data exports: {e}")
+        
+        # Study Overview
+        st.divider()
+        st.subheader("📈 Study Overview")
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            
+            total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
+            completed_questionnaires = pd.read_sql_query("SELECT COUNT(*) as count FROM questionnaire_responses", conn)['count'][0]
+            total_exchanges = pd.read_sql_query("SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", conn)['count'][0]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Registered", total_participants)
+            with col2:
+                st.metric("Completed Studies", completed_questionnaires)
+            with col3:
+                st.metric("Total Exchanges", total_exchanges)
+            
+            conn.close()
+        except Exception as e:
+            st.error(f"Error loading overview: {e}")
     
-    # Study Overview
-    st.divider()
-    st.subheader("📈 Study Overview")
-    try:
-        conn = sqlite3.connect(DATABASE_PATH)
+    with tab2:
+        # RAG System Diagnostics
+        st.subheader("🔍 RAG System Diagnostics")
+        st.info("This panel helps diagnose RAG system issues in the cloud environment.")
         
-        total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
-        completed_questionnaires = pd.read_sql_query("SELECT COUNT(*) as count FROM questionnaire_responses", conn)['count'][0]
-        total_exchanges = pd.read_sql_query("SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", conn)['count'][0]
+        if st.button("🧪 Run Diagnostics", type="primary"):
+            test_results = test_rag_system()
+            
+            # Show recommendations based on results
+            st.subheader("💡 Recommendations")
+            
+            if "❌" in str(test_results.get("RAG Import", "")):
+                st.error("**Critical**: RAG system files not found. Check deployment includes rag_stimulus_pipeline.py")
+            
+            if "❌" in str(test_results.get("ChromaDB", "")):
+                st.error("**Critical**: ChromaDB initialization failed. May need different ChromaDB configuration for cloud.")
+            
+            failed_apis = [name for name, result in test_results.items() if "API" in name and "❌" in result]
+            if failed_apis:
+                st.warning(f"**API Issues**: {', '.join([name.replace(' API', '') for name in failed_apis])} not accessible. Check firewall/network restrictions.")
+            
+            if "❌" in str(test_results.get("RAG System Init", "")):
+                st.error("**Critical**: RAG system cannot initialize. This explains why scenarios are pure AI generation.")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Registered", total_participants)
-        with col2:
-            st.metric("Completed Studies", completed_questionnaires)
-        with col3:
-            st.metric("Total Exchanges", total_exchanges)
+        st.divider()
+        st.subheader("🛠️ Manual RAG Test")
         
-        conn.close()
-    except Exception as e:
-        st.error(f"Error loading overview: {e}")
+        test_query = st.text_input("Test query for RAG system:", value="AI ethics policy")
+        
+        if st.button("Test RAG Query") and test_query:
+            try:
+                from rag_stimulus_pipeline import RAGSystem
+                rag_system = RAGSystem()
+                docs = rag_system.query_rag(test_query)
+                
+                st.success(f"Retrieved {len(docs)} documents")
+                
+                if docs:
+                    st.subheader("Retrieved Documents:")
+                    for i, doc in enumerate(docs[:3], 1):  # Show first 3
+                        meta = doc.get('metadata', {})
+                        st.write(f"**{i}. [{meta.get('source', 'Unknown')}]** {meta.get('title', 'No title')}")
+                        st.write(f"Content preview: {doc.get('text', '')[:200]}...")
+                        st.divider()
+                else:
+                    st.warning("No documents retrieved - RAG system not working properly")
+                    
+            except Exception as e:
+                st.error(f"RAG test failed: {e}")
+                st.info("This confirms RAG system is not working in cloud environment")
 
 if __name__ == "__main__":
     main()
