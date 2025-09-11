@@ -166,9 +166,6 @@ def main():
     if 'consent_given' not in st.session_state:
         st.session_state.consent_given = False
     
-    if 'orchestrator' not in st.session_state:
-        st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
-    
     if 'messages' not in st.session_state:
         st.session_state.messages = []
     
@@ -203,6 +200,15 @@ def main():
     elif st.session_state.post_questionnaire_completed:
         show_thank_you()
         return
+    
+    # Initialize orchestrator after consent is given
+    if 'orchestrator' not in st.session_state:
+        try:
+            st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
+        except Exception as e:
+            st.error(f"Failed to initialize chatbot system: {e}")
+            st.info("Please contact the study administrators if this error persists.")
+            return
     
     # Generate opening stimulus if not done
     if not st.session_state.stimulus_generated:
