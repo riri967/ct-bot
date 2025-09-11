@@ -162,6 +162,12 @@ def main():
     if 'participant_id' not in st.session_state:
         st.session_state.participant_id = str(uuid.uuid4())
         st.session_state.participant_created = False
+        # Reset all session state for new participant
+        st.session_state.consent_given = False
+        st.session_state.questionnaire_completed = False
+        st.session_state.conversation_ended = False
+        st.session_state.post_questionnaire_completed = False
+        st.session_state.stimulus_generated = False
     
     if 'consent_given' not in st.session_state:
         st.session_state.consent_given = False
