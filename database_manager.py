@@ -187,6 +187,71 @@ class DatabaseManager:
             st.error(f"Error updating participant: {e}")
             return False
     
+    def get_conversation_history(self, participant_id: str) -> List[tuple]:
+        """Get conversation history for a participant"""
+        try:
+            if self.use_supabase:
+                result = supabase_client.table('conversations').select('*').eq('participant_id', participant_id).order('timestamp').execute()
+                if result.data:
+                    return [(row['user_message'], row['ai_response']) for row in result.data]
+                return []
+            else:
+                conn = sqlite3.connect(DATABASE_PATH)
+                c = conn.cursor()
+                c.execute('''SELECT user_message, ai_response FROM conversations 
+                           WHERE participant_id = ? ORDER BY timestamp''', (participant_id,))
+                messages = c.fetchall()
+                conn.close()
+                return messages
+        except Exception as e:
+            st.error(f"Error getting conversation history: {e}")
+            return []
+    
+    def export_conversation_flow_csv(self) -> pd.DataFrame:
+        """Export conversation flows as CSV"""
+        try:
+            if self.use_supabase:
+                # Get all conversations with participant info
+                conversations = supabase_client.table('conversations').select('*').execute()
+                participants = supabase_client.table('participants').select('*').execute()
+                questionnaires = supabase_client.table('questionnaire_responses').select('*').execute()
+                
+                if not conversations.data:
+                    return pd.DataFrame()
+                
+                # Convert to DataFrames
+                conv_df = pd.DataFrame(conversations.data)
+                part_df = pd.DataFrame(participants.data) if participants.data else pd.DataFrame()
+                quest_df = pd.DataFrame(questionnaires.data) if questionnaires.data else pd.DataFrame()
+                
+            else:
+                conn = sqlite3.connect(DATABASE_PATH)
+                conv_df = pd.read_sql_query('''
+                    SELECT c.*, p.start_time as participant_start_time 
+                    FROM conversations c 
+                    LEFT JOIN participants p ON c.participant_id = p.id 
+                    ORDER BY c.participant_id, c.timestamp
+                ''', conn)
+                quest_df = pd.read_sql_query("SELECT * FROM questionnaire_responses", conn)
+                conn.close()
+            
+            # Filter for actual conversations (not just system messages)
+            user_conversations = conv_df[conv_df['user_message'].notna() & (conv_df['user_message'] != '')]
+            
+            # Add questionnaire data if available
+            if not quest_df.empty:
+                user_conversations = user_conversations.merge(
+                    quest_df[['participant_id', 'facione_critical_thinking_score', 'age', 'education']], 
+                    on='participant_id', 
+                    how='left'
+                )
+            
+            return user_conversations
+            
+        except Exception as e:
+            st.error(f"Error exporting conversation flow: {e}")
+            return pd.DataFrame()
+
     def get_admin_data(self) -> Dict[str, pd.DataFrame]:
         """Get all data for admin panel"""
         try:

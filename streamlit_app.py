@@ -20,11 +20,19 @@ from socratic_chatbot import SimplifiedOrchestrator
 from api_utils import get_model_with_retry, generate_with_retry
 import os
 from database_manager import db_manager
+import sqlite3
 
 # Configuration
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, DATABASE_PATH
 
 API_KEY = GEMINI_API_KEY
+
+def get_conversation_history(participant_id):
+    """Get conversation history for a participant"""
+    try:
+        return db_manager.get_conversation_history(participant_id)
+    except:
+        return []
 
 def init_database():
     """Initialize database (handled by database_manager)"""
@@ -558,16 +566,12 @@ def show_admin_panel():
     """Show admin panel for data export - add ?admin=true to URL"""
     st.title("🔧 Study Admin Panel")
     
-    # Create tabs
-    tab1, tab2, tab3 = st.tabs(["📊 Data Export", "💬 Conversation Viewer", "🧹 Cleanup"])
+    # Export options
+    st.subheader("📥 Download Study Data")
     
-    with tab1:
-        # Export options
-        st.subheader("📥 Download Study Data")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
             if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
                 try:
                     df = create_post_study_stats_csv()
@@ -619,176 +623,27 @@ def show_admin_panel():
                 except Exception as e:
                     st.error(f"Error creating raw data exports: {e}")
     
-    with tab2:
-        st.subheader("💬 Individual Conversation Histories")
+    # Study Overview
+    st.divider()
+    st.subheader("📈 Study Overview")
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
         
-        # Get list of participants with conversations
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            participants_query = """
-            SELECT DISTINCT p.id, p.start_time, q.age, q.education, 
-                   COUNT(c.user_message) as exchanges,
-                   q.facione_critical_thinking_score
-            FROM participants p
-            LEFT JOIN questionnaire_responses q ON p.id = q.participant_id
-            LEFT JOIN conversations c ON p.id = c.participant_id AND c.user_message IS NOT NULL
-            WHERE q.participant_id IS NOT NULL
-            GROUP BY p.id
-            ORDER BY p.start_time DESC
-            """
-            participants_df = pd.read_sql_query(participants_query, conn)
-            
-            if not participants_df.empty:
-                # Create selectbox options
-                options = []
-                for _, row in participants_df.iterrows():
-                    short_id = row['id'][:8] + '...'
-                    score = f"{row['facione_critical_thinking_score']:.1f}" if pd.notna(row['facione_critical_thinking_score']) else "N/A"
-                    options.append(f"{short_id} | {row['exchanges']} exchanges | Score: {score} | {row['start_time']}")
-                
-                selected = st.selectbox("Select participant to view conversation:", 
-                                      options, 
-                                      key="participant_selector")
-                
-                if selected:
-                    # Extract participant ID from selection
-                    participant_idx = options.index(selected)
-                    participant_id = participants_df.iloc[participant_idx]['id']
-                    
-                    # Get full conversation
-                    conv_query = """
-                    SELECT user_message, ai_response, timestamp
-                    FROM conversations 
-                    WHERE participant_id = ? 
-                    ORDER BY timestamp
-                    """
-                    conversations = pd.read_sql_query(conv_query, conn, params=[participant_id])
-                    
-                    # Get scenario
-                    scenario_query = """
-                    SELECT scenario_text, initial_question
-                    FROM study_scenarios 
-                    WHERE participant_id = ?
-                    """
-                    scenario_result = pd.read_sql_query(scenario_query, conn, params=[participant_id])
-                    
-                    # Display conversation
-                    if not scenario_result.empty:
-                        st.subheader("🎯 Discussion Scenario")
-                        st.write(scenario_result['scenario_text'].iloc[0])
-                        st.write(f"**Initial Question:** {scenario_result['initial_question'].iloc[0]}")
-                        st.divider()
-                    
-                    st.subheader("💬 Conversation History")
-                    
-                    exchange_count = 0
-                    for _, conv in conversations.iterrows():
-                        if pd.notna(conv['user_message']):
-                            exchange_count += 1
-                            st.write(f"**Exchange {exchange_count}** _{conv['timestamp']}_")
-                            
-                            with st.container():
-                                st.markdown(f"**👤 Student:** {conv['user_message']}")
-                                st.markdown(f"**🤖 AI:** {conv['ai_response']}")
-                            st.divider()
-                    
-                    if exchange_count == 0:
-                        st.info("No conversation exchanges found for this participant.")
-            else:
-                st.info("No completed participants found.")
-            
-            conn.close()
-            
-        except Exception as e:
-            st.error(f"Error loading conversations: {e}")
-    
-    with tab3:
-        st.subheader("🧹 Database Cleanup")
-        col1, col2 = st.columns(2)
+        total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
+        completed_questionnaires = pd.read_sql_query("SELECT COUNT(*) as count FROM questionnaire_responses", conn)['count'][0]
+        total_exchanges = pd.read_sql_query("SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", conn)['count'][0]
         
+        col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("Remove Empty Participants", type="secondary"):
-                conn = sqlite3.connect(DB_PATH)
-                # Remove participants with no questionnaire responses and no conversations
-                result = conn.execute('''
-                    DELETE FROM participants 
-                    WHERE id NOT IN (SELECT DISTINCT participant_id FROM questionnaire_responses)
-                    AND id NOT IN (SELECT DISTINCT participant_id FROM conversations WHERE user_message IS NOT NULL)
-                ''')
-                deleted_count = result.rowcount
-                conn.commit()
-                conn.close()
-                st.success(f"Removed {deleted_count} empty participant records")
-                st.rerun()
-        
+            st.metric("Total Registered", total_participants)
         with col2:
-            # Show count of empty participants
-            conn = sqlite3.connect(DB_PATH)
-            empty_count = pd.read_sql_query('''
-                SELECT COUNT(*) as count FROM participants 
-                WHERE id NOT IN (SELECT DISTINCT participant_id FROM questionnaire_responses)
-                AND id NOT IN (SELECT DISTINCT participant_id FROM conversations WHERE user_message IS NOT NULL)
-            ''', conn)['count'][0]
-            conn.close()
-            st.metric("Empty Participants", empty_count)
+            st.metric("Completed Studies", completed_questionnaires)
+        with col3:
+            st.metric("Total Exchanges", total_exchanges)
         
-        # Quick stats for cleanup tab
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            
-            total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
-            active_convs = pd.read_sql_query(
-                "SELECT COUNT(DISTINCT participant_id) as count FROM conversations WHERE user_message IS NOT NULL", 
-                conn
-            )['count'][0]
-            total_exchanges = pd.read_sql_query(
-                "SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", 
-                conn
-            )['count'][0]
-            completed_questionnaires = pd.read_sql_query(
-                "SELECT COUNT(*) as count FROM questionnaire_responses", 
-                conn
-            )['count'][0]
-            
-            st.divider()
-            st.subheader("📈 Database Overview")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Participants", total_participants)
-            with col2:
-                st.metric("Active Conversations", active_convs)
-            with col3:
-                st.metric("Total Exchanges", total_exchanges)
-            with col4:
-                st.metric("Completed Questionnaires", completed_questionnaires)
-            
-            conn.close()
-            
-        except Exception as e:
-            st.error(f"Error loading stats: {e}")
-    
-    # Add stats to first tab too
-    with tab1:
-        st.divider()
-        st.subheader("📈 Study Overview")
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            
-            total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
-            completed_questionnaires = pd.read_sql_query("SELECT COUNT(*) as count FROM questionnaire_responses", conn)['count'][0]
-            total_exchanges = pd.read_sql_query("SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", conn)['count'][0]
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Registered", total_participants)
-            with col2:
-                st.metric("Completed Studies", completed_questionnaires)
-            with col3:
-                st.metric("Total Exchanges", total_exchanges)
-            
-            conn.close()
-        except Exception as e:
-            st.error(f"Error loading overview: {e}")
+        conn.close()
+    except Exception as e:
+        st.error(f"Error loading overview: {e}")
 
 if __name__ == "__main__":
     main()
