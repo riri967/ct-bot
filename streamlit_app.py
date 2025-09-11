@@ -584,56 +584,56 @@ def show_admin_panel():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-            if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
-                try:
-                    df = create_post_study_stats_csv()
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="Download Post-Study Data CSV",
-                        data=csv,
-                        file_name=f"post_study_questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                    st.success(f"✅ Generated CSV with {len(df)} completed participants")
-                except Exception as e:
-                    st.error(f"Error creating post-study CSV: {e}")
-        
-        with col2:
-            if st.button("💬 Conversation Flow Export", type="primary"):
-                try:
-                    df = create_conversation_flow_csv()
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="Download Conversation Flow CSV",
-                        data=csv,
-                        file_name=f"conversation_flows_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-                    st.success(f"✅ Generated conversation flow CSV with {len(df)} participants")
-                except Exception as e:
-                    st.error(f"Error creating conversation flow CSV: {e}")
-        
-        with col3:
-            if st.button("📊 Raw Data Tables", type="secondary"):
-                try:
-                    admin_data = db_manager.get_admin_data()
-                    
-                    for table_name, df in admin_data.items():
-                        if not df.empty:
-                            csv = df.to_csv(index=False)
-                            st.download_button(
-                                label=f"Download {table_name}.csv",
-                                data=csv,
-                                file_name=f"{table_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv",
-                                key=f"download_{table_name}"
-                            )
-                        else:
-                            st.write(f"⚠️ {table_name}: No data available")
-                    
-                    st.success("✅ Raw data tables ready for download")
-                except Exception as e:
-                    st.error(f"Error creating raw data exports: {e}")
+        if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
+            try:
+                df = create_post_study_stats_csv()
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download Post-Study Data CSV",
+                    data=csv,
+                    file_name=f"post_study_questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+                st.success(f"✅ Generated CSV with {len(df)} completed participants")
+            except Exception as e:
+                st.error(f"Error creating post-study CSV: {e}")
+    
+    with col2:
+        if st.button("💬 Conversation Flow Export", type="primary"):
+            try:
+                df = create_conversation_flow_csv()
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download Conversation Flow CSV",
+                    data=csv,
+                    file_name=f"conversation_flows_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+                st.success(f"✅ Generated conversation flow CSV with {len(df)} participants")
+            except Exception as e:
+                st.error(f"Error creating conversation flow CSV: {e}")
+    
+    with col3:
+        if st.button("📊 Raw Data Tables", type="secondary"):
+            try:
+                admin_data = db_manager.get_admin_data()
+                
+                for table_name, df in admin_data.items():
+                    if not df.empty:
+                        csv = df.to_csv(index=False)
+                        st.download_button(
+                            label=f"Download {table_name}.csv",
+                            data=csv,
+                            file_name=f"{table_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            key=f"download_{table_name}"
+                        )
+                    else:
+                        st.write(f"⚠️ {table_name}: No data available")
+                
+                st.success("✅ Raw data tables ready for download")
+            except Exception as e:
+                st.error(f"Error creating raw data exports: {e}")
     
     # Study Overview
     st.divider()
