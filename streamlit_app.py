@@ -212,7 +212,7 @@ def main():
         try:
             st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
         except Exception as e:
-            st.error(f"Failed to initialize chatbot system: {e}")
+            st.error(f"Failed to initialise chatbot system: {e}")
             st.info("Please contact the study administrators if this error persists.")
             return
     
@@ -557,13 +557,6 @@ def show_thank_you():
     st.balloons()
     
     st.write("Your responses have been recorded. Thank you for contributing to our research on critical thinking and AI-powered educational tools.")
-    
-    # Debug info (remove for production)
-    if st.checkbox("Show debug info", value=False):
-        st.subheader("Debug Information")
-        facione_score = st.session_state.participant_data.get('facione_critical_thinking_score', 'Not available')
-        st.metric("Facione Critical Thinking Score", f"{facione_score:.2f}/4.0" if isinstance(facione_score, (int, float)) else facione_score)
-        st.json(st.session_state.participant_data)
 
 def create_conversation_flow_csv():
     """Create a formatted CSV with conversation flows for each participant"""
@@ -576,14 +569,14 @@ def create_post_study_stats_csv():
 
 def test_rag_system():
     """Test RAG system components for debugging"""
-    st.subheader("🔍 RAG System Diagnostics")
+    st.subheader("RAG System Diagnostics")
     
     test_results = {}
     
     # Test 1: RAG System Import
     try:
         from rag_stimulus_pipeline import RAGSystem, DocumentRetriever
-        test_results["RAG Import"] = "✅ Success"
+        test_results["RAG Import"] = "Success"
     except Exception as e:
         test_results["RAG Import"] = f"❌ Failed: {e}"
     
@@ -592,7 +585,7 @@ def test_rag_system():
         import chromadb
         client = chromadb.Client()
         collection = client.get_or_create_collection("test")
-        test_results["ChromaDB"] = "✅ Working"
+        test_results["ChromaDB"] = "Working"
     except Exception as e:
         test_results["ChromaDB"] = f"❌ Failed: {e}"
     
@@ -609,9 +602,9 @@ def test_rag_system():
         try:
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
-                test_results[f"{api_name} API"] = "✅ Accessible"
+                test_results[f"{api_name} API"] = "Accessible"
             else:
-                test_results[f"{api_name} API"] = f"⚠️ HTTP {response.status_code}"
+                test_results[f"{api_name} API"] = f"HTTP {response.status_code}"
         except Exception as e:
             test_results[f"{api_name} API"] = f"❌ Failed: {str(e)[:50]}..."
     
@@ -619,11 +612,11 @@ def test_rag_system():
     try:
         from rag_stimulus_pipeline import RAGSystem
         rag_system = RAGSystem()
-        test_results["RAG System Init"] = "✅ Initialized"
+        test_results["RAG System Init"] = "Initialized"
         
         # Test document retrieval
         docs = rag_system.query_rag("test query")
-        test_results["Document Retrieval"] = f"✅ Retrieved {len(docs)} documents"
+        test_results["Document Retrieval"] = f"Retrieved {len(docs)} documents"
         
     except Exception as e:
         test_results["RAG System Init"] = f"❌ Failed: {e}"
@@ -631,9 +624,9 @@ def test_rag_system():
     
     # Display results
     for test_name, result in test_results.items():
-        if "✅" in result:
+        if "Success" in result or "Working" in result or "Accessible" in result or "Initialized" in result or "Retrieved" in result:
             st.success(f"**{test_name}**: {result}")
-        elif "⚠️" in result:
+        elif "HTTP" in result:
             st.warning(f"**{test_name}**: {result}")
         else:
             st.error(f"**{test_name}**: {result}")
@@ -645,16 +638,16 @@ def show_admin_panel():
     st.title("🔧 Study Admin Panel")
     
     # Create tabs for different admin functions
-    tab1, tab2 = st.tabs(["📥 Data Export", "🔍 System Diagnostics"])
+    tab1, tab2 = st.tabs(["Data Export", "System Diagnostics"])
     
     with tab1:
         # Export options
-        st.subheader("📥 Download Study Data")
+        st.subheader("Download Study Data")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("📋 Post-Study Questionnaires + Stats", type="primary"):
+            if st.button("Post-Study Questionnaires + Stats", type="primary"):
                 try:
                     df = create_post_study_stats_csv()
                     csv = df.to_csv(index=False)
@@ -664,12 +657,12 @@ def show_admin_panel():
                         file_name=f"post_study_questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv"
                     )
-                    st.success(f"✅ Generated CSV with {len(df)} completed participants")
+                    st.success(f"Generated CSV with {len(df)} completed participants")
                 except Exception as e:
                     st.error(f"Error creating post-study CSV: {e}")
     
         with col2:
-            if st.button("💬 Conversation Flow Export", type="primary"):
+            if st.button("Conversation Flow Export", type="primary"):
                 try:
                     df = create_conversation_flow_csv()
                     csv = df.to_csv(index=False)
@@ -679,12 +672,12 @@ def show_admin_panel():
                         file_name=f"conversation_flows_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv"
                     )
-                    st.success(f"✅ Generated conversation flow CSV with {len(df)} participants")
+                    st.success(f"Generated conversation flow CSV with {len(df)} participants")
                 except Exception as e:
                     st.error(f"Error creating conversation flow CSV: {e}")
         
         with col3:
-            if st.button("📊 Raw Data Tables", type="secondary"):
+            if st.button("Raw Data Tables", type="secondary"):
                 try:
                     admin_data = db_manager.get_admin_data()
                     
@@ -699,15 +692,15 @@ def show_admin_panel():
                                 key=f"download_{table_name}"
                             )
                         else:
-                            st.write(f"⚠️ {table_name}: No data available")
+                            st.write(f"{table_name}: No data available")
                 
-                    st.success("✅ Raw data tables ready for download")
+                    st.success("Raw data tables ready for download")
                 except Exception as e:
                     st.error(f"Error creating raw data exports: {e}")
         
         # Study Overview
         st.divider()
-        st.subheader("📈 Study Overview")
+        st.subheader("Study Overview")
         try:
             conn = sqlite3.connect(DATABASE_PATH)
             
@@ -729,14 +722,14 @@ def show_admin_panel():
     
     with tab2:
         # RAG System Diagnostics
-        st.subheader("🔍 RAG System Diagnostics")
+        st.subheader("RAG System Diagnostics")
         st.info("This panel helps diagnose RAG system issues in the cloud environment.")
         
         if st.button("🧪 Run Diagnostics", type="primary"):
             test_results = test_rag_system()
             
             # Show recommendations based on results
-            st.subheader("💡 Recommendations")
+            st.subheader("Recommendations")
             
             if "❌" in str(test_results.get("RAG Import", "")):
                 st.error("**Critical**: RAG system files not found. Check deployment includes rag_stimulus_pipeline.py")
@@ -749,10 +742,10 @@ def show_admin_panel():
                 st.warning(f"**API Issues**: {', '.join([name.replace(' API', '') for name in failed_apis])} not accessible. Check firewall/network restrictions.")
             
             if "❌" in str(test_results.get("RAG System Init", "")):
-                st.error("**Critical**: RAG system cannot initialize. This explains why scenarios are pure AI generation.")
+                st.error("**Critical**: RAG system cannot initialise. This explains why scenarios are pure AI generation.")
         
         st.divider()
-        st.subheader("🛠️ Manual RAG Test")
+        st.subheader("Manual RAG Test")
         
         test_query = st.text_input("Test query for RAG system:", value="AI ethics policy")
         

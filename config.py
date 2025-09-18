@@ -23,6 +23,8 @@ GEMINI_API_KEYS = {
 # Backward compatibility
 GEMINI_API_KEY = GEMINI_API_KEYS['stimulus_generation']
 
+
+
 # Database settings - Prioritize Supabase for deployment
 def get_supabase_url():
     try:
@@ -45,5 +47,4 @@ USE_SUPABASE = bool(get_supabase_url() and get_supabase_key())
 DATABASE_PATH = "study_data.db"  # Fallback for local development
 
 # Other settings
-DEBUG_MODE = False
 MAX_RETRIES = 2  # Retry with different keys if one fails
