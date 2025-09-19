@@ -9,29 +9,21 @@ from typing import Optional, Dict, List, Any
 import streamlit as st
 from config import USE_SUPABASE, DATABASE_PATH, get_supabase_url, get_supabase_key
 
-# Supabase client (only import if needed)
+supabase_client = None
 if USE_SUPABASE:
     try:
         from supabase import create_client, Client
-        supabase_client: Client = create_client(get_supabase_url(), get_supabase_key())
+        supabase_client = create_client(get_supabase_url(), get_supabase_key())
     except ImportError:
         st.error("Supabase not installed. Run: pip install supabase")
-        USE_SUPABASE = False
-        supabase_client = None
-else:
-    supabase_client = None
 
 class DatabaseManager:
     """Unified database interface for SQLite and Supabase"""
     
     def __init__(self):
         self.use_supabase = USE_SUPABASE and supabase_client is not None
-        
         if not self.use_supabase:
             self.init_sqlite()
-        else:
-            # Supabase tables should already be created via dashboard
-            st.info("Using Supabase for data storage")
     
     def init_sqlite(self):
         """Initialize SQLite database"""
@@ -95,27 +87,35 @@ class DatabaseManager:
         conn.commit()
         conn.close()
     
-    def add_participant(self, participant_id: str) -> bool:
-        """Add new participant"""
+    def _execute_db_operation(self, operation_name: str, supabase_op, sqlite_op) -> bool:
+        """Helper method to execute database operations with error handling"""
         try:
             if self.use_supabase:
-                result = supabase_client.table('participants').insert({
-                    'id': participant_id,
-                    'start_time': datetime.now().isoformat(),
-                    'status': 'active'
-                }).execute()
-                return bool(result.data)
+                result = supabase_op()
+                return bool(result.data if hasattr(result, 'data') else result)
             else:
-                conn = sqlite3.connect(DATABASE_PATH)
-                c = conn.cursor()
-                c.execute('''INSERT INTO participants (id, start_time, status) VALUES (?, ?, ?)''',
-                         (participant_id, datetime.now(), 'active'))
-                conn.commit()
-                conn.close()
+                sqlite_op()
                 return True
         except Exception as e:
-            st.error(f"Error adding participant: {e}")
+            st.error(f"Error {operation_name}: {e}")
             return False
+    
+    def add_participant(self, participant_id: str) -> bool:
+        """Add new participant"""
+        def supabase_op():
+            return supabase_client.table('participants').insert({
+                'id': participant_id, 'start_time': datetime.now().isoformat(), 'status': 'active'
+            }).execute()
+        
+        def sqlite_op():
+            conn = sqlite3.connect(DATABASE_PATH)
+            c = conn.cursor()
+            c.execute('''INSERT INTO participants (id, start_time, status) VALUES (?, ?, ?)''',
+                     (participant_id, datetime.now(), 'active'))
+            conn.commit()
+            conn.close()
+        
+        return self._execute_db_operation("adding participant", supabase_op, sqlite_op)
     
     def save_message(self, participant_id: str, user_msg: Optional[str], ai_msg: Optional[str]) -> bool:
         """Save conversation message"""

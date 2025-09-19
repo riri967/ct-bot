@@ -24,65 +24,65 @@ class Doc:
     source: str
     published: Optional[str] = None
 
-class OpenAlexRetriever:
+class BaseRetriever:
+    """Base class for API retrievers"""
+    def __init__(self, source_name: str):
+        self.source_name = source_name
+    
+    def retrieve(self, query: str, limit: int = 5) -> List[Doc]:
+        try:
+            return self._fetch_docs(query, limit)
+        except Exception as e:
+            print(f"{self.source_name} retrieval error: {e}")
+            return self._fallback_docs(query)
+    
+    def _fetch_docs(self, query: str, limit: int) -> List[Doc]:
+        raise NotImplementedError
+    
+    def _fallback_docs(self, query: str) -> List[Doc]:
+        raise NotImplementedError
+
+class OpenAlexRetriever(BaseRetriever):
     """Retrieve scholarly papers from OpenAlex API (free, no authentication required)"""
     
     def __init__(self):
+        super().__init__("OpenAlex")
         self.base_url = "https://api.openalex.org/works"
     
-    def retrieve(self, query: str, limit: int = 5) -> List[Doc]:
+    def _fetch_docs(self, query: str, limit: int = 5) -> List[Doc]:
         """Fetch real academic papers from OpenAlex API"""
-        try:
-            params = {
-                'search': query,
-                'per_page': min(limit, 25),  # API limit is 25
-                'sort': 'cited_by_count:desc',
-                'filter': 'is_oa:true'  # Only open access papers for better content access
-            }
+        params = {
+            'search': query, 'per_page': min(limit, 25),
+            'sort': 'cited_by_count:desc', 'filter': 'is_oa:true'
+        }
+        
+        response = requests.get(self.base_url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        docs = []
+        for work in data.get('results', []):
+            abstract = work.get('abstract_inverted_index')
+            if abstract:
+                words = [''] * max(max(positions) for positions in abstract.values()) if abstract else []
+                for word, positions in abstract.items():
+                    for pos in positions:
+                        if pos < len(words):
+                            words[pos] = word
+                text = ' '.join(words).strip()[:1000]
+            else:
+                text = work.get('title', '')[:1000]
             
-            response = requests.get(self.base_url, params=params, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            
-            docs = []
-            for work in data.get('results', []):
-                # Get abstract, if not available use title
-                abstract = work.get('abstract_inverted_index')
-                if abstract:
-                    # Reconstruct abstract from inverted index
-                    words = [''] * max(max(positions) for positions in abstract.values()) if abstract else []
-                    for word, positions in abstract.items():
-                        for pos in positions:
-                            if pos < len(words):
-                                words[pos] = word
-                    text = ' '.join(words).strip()[:1000]
-                else:
-                    text = work.get('title', '')[:1000]
-                
-                if not text.strip():
-                    continue
-                
-                # Get DOI or OpenAlex ID
-                doi = work.get('doi')
-                url = doi if doi else work.get('id', '')
-                
-                doc = Doc(
-                    text=text,
-                    title=work.get('title', 'Untitled Research Paper'),
-                    url=url,
-                    source='OpenAlex',
+            if text.strip():
+                docs.append(Doc(
+                    text=text, title=work.get('title', 'Untitled Research Paper'),
+                    url=work.get('doi') or work.get('id', ''), source='OpenAlex',
                     published=work.get('publication_date')
-                )
-                docs.append(doc)
-                
+                ))
                 if len(docs) >= limit:
                     break
-            
-            return docs if docs else self._fallback_docs(query)
-            
-        except Exception as e:
-            print(f"OpenAlex API error: {e}")
-            return self._fallback_docs(query)
+        
+        return docs
     
     def _fallback_docs(self, query: str) -> List[Doc]:
         """Fallback academic content when API fails"""
