@@ -23,6 +23,7 @@ import os
 # Configuration
 from config import GEMINI_API_KEY, DATABASE_PATH
 
+
 API_KEY = GEMINI_API_KEY
 DB_PATH = DATABASE_PATH
 
