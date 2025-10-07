@@ -43,7 +43,7 @@ def get_model_with_retry(model_name='gemini-1.5-flash', purpose='general', **gen
                 genai.configure(api_key=backup_key)
                 model = genai.GenerativeModel(model_name, generation_config=generation_config)
                 test_response = model.generate_content("Test", request_options={"timeout": 10})
-                print("✅ Backup key working")
+                print("Backup key working")
                 return model
             except Exception as backup_error:
                 print(f"Backup key failed: {str(backup_error)[:50]}...")
@@ -93,7 +93,7 @@ def test_all_keys():
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content("Hello")
-            print(f"✅ {purpose}: Key working - {response.text[:30]}...")
+            print(f"{purpose}: Key working - {response.text[:30]}...")
         except Exception as e:
             print(f"❌ {purpose}: {str(e)[:50]}...")
     
@@ -101,7 +101,7 @@ def test_all_keys():
     try:
         model = get_model_with_retry(purpose='stimulus_generation')
         response = generate_with_retry(model, "Create a test message")
-        print(f"✅ Retry system: {response[:50]}...")
+        print(f"Retry system: {response[:50]}...")
     except Exception as e:
         print(f"❌ Retry system failed: {e}")
 

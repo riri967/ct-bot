@@ -12,62 +12,50 @@ except ImportError:
     pass
 
 import streamlit as st
-import sqlite3
 import uuid
 import json
+import pandas as pd
 from datetime import datetime
 from socratic_chatbot import SimplifiedOrchestrator
 from api_utils import get_model_with_retry, generate_with_retry
 import os
+from database_manager import db_manager
+import sqlite3
 
 # Configuration
 from config import GEMINI_API_KEY, DATABASE_PATH
 
 
 API_KEY = GEMINI_API_KEY
-DB_PATH = DATABASE_PATH
+
+def get_conversation_history(participant_id):
+    """Get conversation history for a participant"""
+    try:
+        return db_manager.get_conversation_history(participant_id)
+    except:
+        return []
 
 def init_database():
-    """Initialize SQLite database"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS participants (
-        id TEXT PRIMARY KEY,
-        start_time TIMESTAMP,
-        status TEXT DEFAULT 'active'
-    )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS conversations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        participant_id TEXT,
-        user_message TEXT,
-        ai_response TEXT,
-        timestamp TIMESTAMP,
-        FOREIGN KEY (participant_id) REFERENCES participants (id)
-    )''')
-    
-    conn.commit()
-    conn.close()
+    """Initialize database (handled by database_manager)"""
+    # Database initialization is now handled by db_manager
+    pass
 
 def save_message(participant_id, user_msg, ai_msg):
     """Save conversation to database"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''INSERT INTO conversations (participant_id, user_message, ai_response, timestamp)
-                 VALUES (?, ?, ?, ?)''', (participant_id, user_msg, ai_msg, datetime.now()))
-    conn.commit()
-    conn.close()
+    return db_manager.save_message(participant_id, user_msg, ai_msg)
 
-def get_conversation_history(participant_id):
-    """Retrieve conversation history"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''SELECT user_message, ai_response FROM conversations 
-                 WHERE participant_id = ? ORDER BY timestamp''', (participant_id,))
-    messages = c.fetchall()
-    conn.close()
-    return messages
+def save_questionnaire_responses(participant_data):
+    """Save all questionnaire responses to database"""
+    participant_id = st.session_state.participant_id
+    
+    # Save questionnaire data
+    success = db_manager.save_questionnaire(participant_id, participant_data)
+    
+    # Update participant status
+    if success:
+        db_manager.update_participant_status(participant_id, 'completed')
+    
+    return success
 
 def score_conversation_facione(scenario, question, conversation_history):
     """Score the entire conversation using Facione framework"""
@@ -162,23 +150,28 @@ No explanation. No labels. Just the JSON."""
 def main():
     st.set_page_config(page_title="Critical Thinking Study", layout="centered")
     
+    # Check for admin panel access
+    query_params = st.query_params
+    if query_params.get("admin") == "true":
+        show_admin_panel()
+        return
+    
     # Initialize database
     init_database()
     
-    # Initialize session state
+    # Initialize session state - ensure one participant per session
     if 'participant_id' not in st.session_state:
         st.session_state.participant_id = str(uuid.uuid4())
-        
-        # Create participant record
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('''INSERT OR IGNORE INTO participants (id, start_time) 
-                     VALUES (?, ?)''', (st.session_state.participant_id, datetime.now()))
-        conn.commit()
-        conn.close()
+        st.session_state.participant_created = False
+        # Reset all session state for new participant
+        st.session_state.consent_given = False
+        st.session_state.questionnaire_completed = False
+        st.session_state.conversation_ended = False
+        st.session_state.post_questionnaire_completed = False
+        st.session_state.stimulus_generated = False
     
-    if 'orchestrator' not in st.session_state:
-        st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
+    if 'consent_given' not in st.session_state:
+        st.session_state.consent_given = False
     
     if 'messages' not in st.session_state:
         st.session_state.messages = []
@@ -201,8 +194,11 @@ def main():
     # Title
     st.title("Critical Thinking Study")
     
-    # Study flow management
-    if not st.session_state.questionnaire_completed:
+    # Study flow management - now includes consent
+    if not st.session_state.consent_given:
+        show_consent_form()
+        return
+    elif not st.session_state.questionnaire_completed:
         show_pre_questionnaire()
         return
     elif st.session_state.conversation_ended and not st.session_state.post_questionnaire_completed:
@@ -211,6 +207,15 @@ def main():
     elif st.session_state.post_questionnaire_completed:
         show_thank_you()
         return
+    
+    # Initialize orchestrator after consent is given
+    if 'orchestrator' not in st.session_state:
+        try:
+            st.session_state.orchestrator = SimplifiedOrchestrator(API_KEY)
+        except Exception as e:
+            st.error(f"Failed to initialise chatbot system: {e}")
+            st.info("Please contact the study administrators if this error persists.")
+            return
     
     # Generate opening stimulus if not done
     if not st.session_state.stimulus_generated:
@@ -324,6 +329,91 @@ def main():
         st.session_state.conversation_ended = True
         st.rerun()
 
+def show_consent_form():
+    """Display consent form and information"""
+    st.header("Research Participation Consent")
+    
+    st.markdown("""
+    ### Critical Thinking in Conversational AI Systems
+    
+    Welcome and thank you for considering taking part in this online study.
+    
+    Before you decide we would like you to understand why the research is being done and what it would involve for you. Please contact one of the investigators using the contact details below if you have any questions.
+    
+    The purpose of this study is to gain information relating to how people engage in critical thinking discussions with AI chatbots. The study aims to improve AI systems for educational purposes.
+    
+    This study is part of a student research project supported by Loughborough University. The study will be undertaken by Rianna Agathocleous and supervised by Varuna De Sliva.
+    
+    You will be asked to complete an anonymous online study, which should take no longer than 15 minutes to complete. You do not need to do anything before completing the study. This is a low risk activity and no disadvantages or risks have been identified in association with participating.
+    
+    You must be over the age of 18 and have the capacity to fully understand and consent to this research.
+    
+    Loughborough University will be using information/data from you to undertake this study and will act as the data controller for this study. This means that the University is responsible for looking after your information and using it properly. No identifiable personal information will be collected and so your participation in the study will be confidential. The anonymous data will be used in student dissertations. No individual will be identifiable in any report, presentation, or publication. All information will be securely stored on the University computer systems. Anonymised data will be retained until the final project marks have been verified.
+    
+    After you have read this information and asked any questions you may have, if you are happy to participate, please read the consent section and confirm your consent by checking the tick boxes below. You can withdraw from the study at any time by closing the browser. However, as the study is anonymous once you have submitted the study it will not be possible to withdraw your data from the study.
+    
+    **Contact Details:**  
+    Varuna De Silva(Responsible Investigator), Loughborough London, Loughborough University, Loughborough, Leicestershire, LE11 3TU, V.d.de-silva@lboro.ac.uk  
+    Rianna Agathocleous (Main investigator), Loughborough London, Loughborough University, Loughborough, Leicestershire, LE11 3TU, R-agathocleous-20@student.lboro.ac.uk
+    
+    **What if I am not happy with how the research was conducted?**  
+    If you are not happy with how the research was conducted, please contact the Secretary of the Ethics Review Sub-Committee, Research & Innovation Office, Hazlerigg Building, Loughborough University, Epinal Way, Loughborough, LE11 3TU. Tel: 01509 222423. Email: researchpolicy@lboro.ac.uk
+    
+    The University also has policies relating to Research Misconduct and Whistle Blowing which are available online at https://www.lboro.ac.uk/internal/research-ethics-integrity/research-integrity/
+    
+    If you require any further information regarding the General Data Protection Regulations, please see: https://www.lboro.ac.uk/privacy/research-privacy/
+    
+    ---
+    """)
+    
+    with st.form("consent_form"):
+        st.subheader("Informed Consent")
+        
+        st.markdown("**Please read each statement carefully and tick the boxes to confirm your understanding:**")
+        
+        consent_1 = st.checkbox("The purpose and details of this study have been explained to me.")
+        
+        consent_2 = st.checkbox("I understand that this study is designed to further scientific knowledge and that all procedures have received a favourable decision from the Loughborough University Ethics Review Sub-Committee.")
+        
+        consent_3 = st.checkbox("I have read and understood the information sheet and this consent form.")
+        
+        consent_4 = st.checkbox("I have had an opportunity to ask questions about my participation.")
+        
+        consent_5 = st.checkbox("I understand that taking part in the survey is anonymous, only non-identifying demographic information will be collected, e.g. gender.")
+        
+        consent_6 = st.checkbox("I understand that this questionnaire includes sensitive questions about critical thinking and AI interactions.")
+        
+        consent_7 = st.checkbox("I understand that I am under no obligation to take part in the study and can withdraw during the survey by closing the browser but will not be able to withdraw once my responses have been submitted.")
+        
+        consent_8 = st.checkbox("I understand that information I provide will be used for the student's dissertation.")
+        
+        st.markdown("---")
+        st.subheader("Consent to Participate")
+        
+        final_consent = st.checkbox("**I voluntarily agree to take part in this study.**", key="final_consent")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            agree_button = st.form_submit_button("Begin Study", type="primary")
+        
+        with col2:
+            decline_button = st.form_submit_button("I Do Not Consent - Exit", type="secondary")
+        
+        if decline_button:
+            st.error("Thank you for your time. You may close this browser tab.")
+            st.stop()
+        
+        if agree_button:
+            all_consents = all([consent_1, consent_2, consent_3, consent_4, consent_5, 
+                               consent_6, consent_7, consent_8, final_consent])
+            
+            if all_consents:
+                st.session_state.consent_given = True
+                st.rerun()
+            else:
+                st.error("Please tick all consent boxes to proceed with the study.")
+
 def show_pre_questionnaire():
     """Display pre-study questionnaire"""
     st.header("Pre-Study Questionnaire")
@@ -350,6 +440,12 @@ def show_pre_questionnaire():
         submitted = st.form_submit_button("Continue to Discussion")
         
         if submitted:
+            # Create participant record in database when questionnaire is submitted
+            if not st.session_state.get('participant_created', False):
+                success = db_manager.add_participant(st.session_state.participant_id)
+                if success:
+                    st.session_state.participant_created = True
+            
             # Save participant data (not to database yet)
             st.session_state.participant_data = {
                 'age': age,
@@ -448,6 +544,10 @@ def show_post_questionnaire():
                 'post_q17_other_comments': q17,
                 'facione_critical_thinking_score': getattr(st.session_state, 'facione_score', 2.5)
             })
+            
+            # Save questionnaire responses to database
+            save_questionnaire_responses(st.session_state.participant_data)
+            
             st.session_state.post_questionnaire_completed = True
             st.rerun()
 
@@ -458,13 +558,219 @@ def show_thank_you():
     st.balloons()
     
     st.write("Your responses have been recorded. Thank you for contributing to our research on critical thinking and AI-powered educational tools.")
+
+def create_conversation_flow_csv():
+    """Create a formatted CSV with conversation flows for each participant"""
+    return db_manager.export_conversation_flow_csv()
+
+def create_post_study_stats_csv():
+    """Create CSV with post-study questionnaire responses and conversation stats"""
+    admin_data = db_manager.get_admin_data()
+    return admin_data['questionnaires']
+
+def test_rag_system():
+    """Test RAG system components for debugging"""
+    st.subheader("RAG System Diagnostics")
     
-    # Debug info (remove for production)
-    if st.checkbox("Show debug info", value=False):
-        st.subheader("Debug Information")
-        facione_score = st.session_state.participant_data.get('facione_critical_thinking_score', 'Not available')
-        st.metric("Facione Critical Thinking Score", f"{facione_score:.2f}/4.0" if isinstance(facione_score, (int, float)) else facione_score)
-        st.json(st.session_state.participant_data)
+    test_results = {}
+    
+    # Test 1: RAG System Import
+    try:
+        from rag_stimulus_pipeline import RAGSystem, DocumentRetriever
+        test_results["RAG Import"] = "Success"
+    except Exception as e:
+        test_results["RAG Import"] = f"❌ Failed: {e}"
+    
+    # Test 2: ChromaDB
+    try:
+        import chromadb
+        client = chromadb.Client()
+        collection = client.get_or_create_collection("test")
+        test_results["ChromaDB"] = "Working"
+    except Exception as e:
+        test_results["ChromaDB"] = f"❌ Failed: {e}"
+    
+    # Test 3: External APIs
+    import requests
+    apis_to_test = {
+        "OpenAlex": "https://api.openalex.org/works?search=ethics&per_page=1",
+        "Wikipedia": "https://en.wikipedia.org/api/rest_v1/page/summary/Ethics",
+        "GDELT": "https://api.gdeltproject.org/api/v2/doc/doc?query=ethics&mode=artlist&maxrecords=1&format=json",
+        "GOV.UK": "https://www.gov.uk/api/search.json?q=ethics&count=1"
+    }
+    
+    for api_name, url in apis_to_test.items():
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                test_results[f"{api_name} API"] = "Accessible"
+            else:
+                test_results[f"{api_name} API"] = f"HTTP {response.status_code}"
+        except Exception as e:
+            test_results[f"{api_name} API"] = f"❌ Failed: {str(e)[:50]}..."
+    
+    # Test 4: RAG System Initialization
+    try:
+        from rag_stimulus_pipeline import RAGSystem
+        rag_system = RAGSystem()
+        test_results["RAG System Init"] = "Initialized"
+        
+        # Test document retrieval
+        docs = rag_system.query_rag("test query")
+        test_results["Document Retrieval"] = f"Retrieved {len(docs)} documents"
+        
+    except Exception as e:
+        test_results["RAG System Init"] = f"❌ Failed: {e}"
+        test_results["Document Retrieval"] = "❌ Skipped (init failed)"
+    
+    # Display results
+    for test_name, result in test_results.items():
+        if "Success" in result or "Working" in result or "Accessible" in result or "Initialized" in result or "Retrieved" in result:
+            st.success(f"**{test_name}**: {result}")
+        elif "HTTP" in result:
+            st.warning(f"**{test_name}**: {result}")
+        else:
+            st.error(f"**{test_name}**: {result}")
+    
+    return test_results
+
+def show_admin_panel():
+    """Show admin panel for data export - add ?admin=true to URL"""
+    st.title("🔧 Study Admin Panel")
+    
+    # Create tabs for different admin functions
+    tab1, tab2 = st.tabs(["Data Export", "System Diagnostics"])
+    
+    with tab1:
+        # Export options
+        st.subheader("Download Study Data")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("Post-Study Questionnaires + Stats", type="primary"):
+                try:
+                    df = create_post_study_stats_csv()
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Post-Study Data CSV",
+                        data=csv,
+                        file_name=f"post_study_questionnaires_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+                    st.success(f"Generated CSV with {len(df)} completed participants")
+                except Exception as e:
+                    st.error(f"Error creating post-study CSV: {e}")
+    
+        with col2:
+            if st.button("Conversation Flow Export", type="primary"):
+                try:
+                    df = create_conversation_flow_csv()
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Conversation Flow CSV",
+                        data=csv,
+                        file_name=f"conversation_flows_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+                    st.success(f"Generated conversation flow CSV with {len(df)} participants")
+                except Exception as e:
+                    st.error(f"Error creating conversation flow CSV: {e}")
+        
+        with col3:
+            if st.button("Raw Data Tables", type="secondary"):
+                try:
+                    admin_data = db_manager.get_admin_data()
+                    
+                    for table_name, df in admin_data.items():
+                        if not df.empty:
+                            csv = df.to_csv(index=False)
+                            st.download_button(
+                                label=f"Download {table_name}.csv",
+                                data=csv,
+                                file_name=f"{table_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                key=f"download_{table_name}"
+                            )
+                        else:
+                            st.write(f"{table_name}: No data available")
+                
+                    st.success("Raw data tables ready for download")
+                except Exception as e:
+                    st.error(f"Error creating raw data exports: {e}")
+        
+        # Study Overview
+        st.divider()
+        st.subheader("Study Overview")
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            
+            total_participants = pd.read_sql_query("SELECT COUNT(*) as count FROM participants", conn)['count'][0]
+            completed_questionnaires = pd.read_sql_query("SELECT COUNT(*) as count FROM questionnaire_responses", conn)['count'][0]
+            total_exchanges = pd.read_sql_query("SELECT COUNT(*) as count FROM conversations WHERE user_message IS NOT NULL", conn)['count'][0]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Registered", total_participants)
+            with col2:
+                st.metric("Completed Studies", completed_questionnaires)
+            with col3:
+                st.metric("Total Exchanges", total_exchanges)
+            
+            conn.close()
+        except Exception as e:
+            st.error(f"Error loading overview: {e}")
+    
+    with tab2:
+        # RAG System Diagnostics
+        st.subheader("RAG System Diagnostics")
+        st.info("This panel helps diagnose RAG system issues in the cloud environment.")
+        
+        if st.button("🧪 Run Diagnostics", type="primary"):
+            test_results = test_rag_system()
+            
+            # Show recommendations based on results
+            st.subheader("Recommendations")
+            
+            if "❌" in str(test_results.get("RAG Import", "")):
+                st.error("**Critical**: RAG system files not found. Check deployment includes rag_stimulus_pipeline.py")
+            
+            if "❌" in str(test_results.get("ChromaDB", "")):
+                st.error("**Critical**: ChromaDB initialization failed. May need different ChromaDB configuration for cloud.")
+            
+            failed_apis = [name for name, result in test_results.items() if "API" in name and "❌" in result]
+            if failed_apis:
+                st.warning(f"**API Issues**: {', '.join([name.replace(' API', '') for name in failed_apis])} not accessible. Check firewall/network restrictions.")
+            
+            if "❌" in str(test_results.get("RAG System Init", "")):
+                st.error("**Critical**: RAG system cannot initialise. This explains why scenarios are pure AI generation.")
+        
+        st.divider()
+        st.subheader("Manual RAG Test")
+        
+        test_query = st.text_input("Test query for RAG system:", value="AI ethics policy")
+        
+        if st.button("Test RAG Query") and test_query:
+            try:
+                from rag_stimulus_pipeline import RAGSystem
+                rag_system = RAGSystem()
+                docs = rag_system.query_rag(test_query)
+                
+                st.success(f"Retrieved {len(docs)} documents")
+                
+                if docs:
+                    st.subheader("Retrieved Documents:")
+                    for i, doc in enumerate(docs[:3], 1):  # Show first 3
+                        meta = doc.get('metadata', {})
+                        st.write(f"**{i}. [{meta.get('source', 'Unknown')}]** {meta.get('title', 'No title')}")
+                        st.write(f"Content preview: {doc.get('text', '')[:200]}...")
+                        st.divider()
+                else:
+                    st.warning("No documents retrieved - RAG system not working properly")
+                    
+            except Exception as e:
+                st.error(f"RAG test failed: {e}")
+                st.info("This confirms RAG system is not working in cloud environment")
 
 if __name__ == "__main__":
     main()
